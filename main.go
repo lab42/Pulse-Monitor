@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/shirou/gopsutil/v3/net"
@@ -30,7 +31,7 @@ var (
 	lastNetStats net.IOCountersStat
 	lastTime     time.Time
 
-	nvmlAvailable bool = false
+	nvidiaSmiAvailable bool = false
 
 	gpuSamples      []float64
 	gpuSampleWindow = 10
@@ -38,14 +39,13 @@ var (
 
 // ------------------ MAIN ------------------
 func main() {
-	// ------------------ NVML INIT ------------------
-	ret := nvml.Init()
-	if ret != nvml.SUCCESS {
-		log.Printf("NVML init failed (%s). GPU stats disabled.", nvml.ErrorString(ret))
-		nvmlAvailable = false
+	// ------------------ NVIDIA-SMI CHECK ------------------
+	if checkNvidiaSmi() {
+		log.Println("nvidia-smi found, GPU monitoring enabled")
+		nvidiaSmiAvailable = true
 	} else {
-		nvmlAvailable = true
-		defer nvml.Shutdown()
+		log.Println("nvidia-smi not found, GPU stats disabled")
+		nvidiaSmiAvailable = false
 	}
 
 	// ------------------ NETWORK INIT ------------------
@@ -146,28 +146,33 @@ func getNetworkSpeed() (float64, float64) {
 	return uploadMbps, downloadMbps
 }
 
-// ------------------ GPU USAGE ------------------
+// ------------------ GPU USAGE (nvidia-smi) ------------------
+func checkNvidiaSmi() bool {
+	cmd := exec.Command("nvidia-smi", "--version")
+	err := cmd.Run()
+	return err == nil
+}
+
 func sampleGPUUsage() {
-	if !nvmlAvailable {
+	if !nvidiaSmiAvailable {
 		return
 	}
 
-	deviceCount, ret := nvml.DeviceGetCount()
-	if ret != nvml.SUCCESS || deviceCount == 0 {
+	// Query GPU utilization using nvidia-smi
+	cmd := exec.Command("nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits")
+	output, err := cmd.Output()
+	if err != nil {
 		return
 	}
 
-	dev, ret := nvml.DeviceGetHandleByIndex(0)
-	if ret != nvml.SUCCESS {
+	// Parse the output (should be a number like "45")
+	gpuStr := strings.TrimSpace(string(output))
+	gpuUsage, err := strconv.ParseFloat(gpuStr, 64)
+	if err != nil {
 		return
 	}
 
-	util, ret := dev.GetUtilizationRates()
-	if ret != nvml.SUCCESS {
-		return
-	}
-
-	addGPUSample(float64(util.Gpu))
+	addGPUSample(gpuUsage)
 }
 
 func addGPUSample(sample float64) {

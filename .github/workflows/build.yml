@@ -11,14 +11,9 @@ jobs:
         with:
           go-version: '1.25'
       
-      - name: Install CUDA Toolkit
-        uses: Jimver/cuda-toolkit@v0.2.29
-        with:
-          method: 'network'
-      
-      - name: Build with GPU support
+      - name: Build
         run: |
-          $env:CGO_ENABLED=1
+          $env:CGO_ENABLED=0
           go build -ldflags="-s -w" -o pulse-monitor.exe
         shell: powershell
       
