@@ -9,12 +9,11 @@ jobs:
       
       - uses: actions/setup-go@v4
         with:
-          go-version: '1.21'
+          go-version: '1.25'
       
       - name: Install CUDA Toolkit
-        uses: Jimver/cuda-toolkit@v0.2.14
+        uses: Jimver/cuda-toolkit@v0.2.29
         with:
-          cuda: '12.3.0'
           method: 'network'
       
       - name: Build with GPU support
