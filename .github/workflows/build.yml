@@ -1,23 +1,32 @@
 name: Build
-
 on: [push]
 
 jobs:
   build:
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v3
-    
-    - uses: actions/setup-go@v4
-      with:
-        go-version: '1.25'
-    
-    - name: Build
-      run: |
-        $env:CGO_ENABLED=0
-        go build -ldflags="-s -w" -o pulse-monitor.exe
-
-    - uses: actions/upload-artifact@v4
-      with:
-        name: pulse-monitor
-        path: pulse-monitor.exe
+      - uses: actions/checkout@v3
+      
+      - uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+      
+      - name: Install CUDA Toolkit
+        uses: Jimver/cuda-toolkit@v0.2.14
+        with:
+          cuda: '12.3.0'
+          method: 'network'
+      
+      - name: Build with GPU support
+        run: |
+          $env:CGO_ENABLED=1
+          go build -ldflags="-s -w" -o pulse-monitor.exe
+        shell: powershell
+      
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pulse-monitor
+          path: |
+            pulse-monitor.exe
+            install.ps1
+            uninstall.ps1
