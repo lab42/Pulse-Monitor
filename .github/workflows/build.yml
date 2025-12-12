@@ -25,3 +25,5 @@ jobs:
             install.ps1
             uninstall.ps1
             README.md
+            firmware
+            
