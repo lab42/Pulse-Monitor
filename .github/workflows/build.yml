@@ -24,3 +24,4 @@ jobs:
             pulse-monitor.exe
             install.ps1
             uninstall.ps1
+            README.md
