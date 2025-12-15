@@ -1,6 +1,5 @@
 name: Build
 on: [push]
-
 jobs:
   build:
     runs-on: windows-latest
@@ -16,14 +15,16 @@ jobs:
           $env:CGO_ENABLED=0
           go build -ldflags="-s -w" -o pulse-monitor.exe
         shell: powershell
+      
+      - name: Package Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          $version = $env:GITHUB_REF -replace 'refs/tags/', ''
+          Compress-Archive -Path pulse-monitor.exe,install.ps1,uninstall.ps1,README.md -DestinationPath "pulse-monitor-$version.zip"
+        shell: powershell
             
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            pulse-monitor.exe
-            install.ps1
-            uninstall.ps1
-            README.md
-            firmware
+          files: pulse-monitor-*.zip

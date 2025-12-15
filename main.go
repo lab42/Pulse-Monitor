@@ -10,17 +10,19 @@ import (
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/shirou/gopsutil/v3/net"
 	"go.bug.st/serial"
 )
 
 type SystemStats struct {
-	CPU      float64 `json:"cpu"`
-	Memory   float64 `json:"memory"`
-	GPU      float64 `json:"gpu"`
-	Upload   float64 `json:"upload"`
-	Download float64 `json:"download"`
+	CPU       float64 `json:"cpu"`
+	Memory    float64 `json:"memory"`
+	GPU       float64 `json:"gpu"`
+	Upload    float64 `json:"upload"`
+	Download  float64 `json:"download"`
+	DiskUsage float64 `json:"disk_usage"`
 }
 
 // ------------------ CONFIG ------------------
@@ -29,7 +31,7 @@ const esp32ID = "ID:91d8141364e544e181fca2382cd6751a"
 // ------------------ GLOBALS ------------------
 var (
 	lastNetStats net.IOCountersStat
-	lastTime     time.Time
+	lastNetTime  time.Time
 
 	nvidiaSmiAvailable bool = false
 
@@ -39,7 +41,6 @@ var (
 
 // ------------------ MAIN ------------------
 func main() {
-	// ------------------ NVIDIA-SMI CHECK ------------------
 	if checkNvidiaSmi() {
 		log.Println("nvidia-smi found, GPU monitoring enabled")
 		nvidiaSmiAvailable = true
@@ -48,28 +49,23 @@ func main() {
 		nvidiaSmiAvailable = false
 	}
 
-	// ------------------ NETWORK INIT ------------------
 	netStats, _ := net.IOCounters(false)
 	if len(netStats) > 0 {
 		lastNetStats = netStats[0]
-		lastTime = time.Now()
+		lastNetTime = time.Now()
 	}
 
-	// ------------------ ESP32 SERIAL INIT ------------------
 	port := openPortWithRetry()
 	defer port.Close()
 
-	// ------------------ GPU SAMPLER ------------------
 	go func() {
 		ticker := time.NewTicker(200 * time.Millisecond)
 		defer ticker.Stop()
-
 		for range ticker.C {
 			sampleGPUUsage()
 		}
 	}()
 
-	// ------------------ MAIN LOOP ------------------
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -81,7 +77,8 @@ func main() {
 			continue
 		}
 
-		// Send JSON followed by newline
+		log.Println(string(jsonData))
+
 		_, err = port.Write(append(jsonData, '\n'))
 		if err != nil {
 			fmt.Println("Lost connection to Pulse Monitor — reconnecting...")
@@ -92,29 +89,36 @@ func main() {
 	}
 }
 
+// ------------------ ROUNDING HELPER ------------------
+func round2(v float64) float64 {
+	return float64(int(v*100)) / 100
+}
+
 // ------------------ SYSTEM STATS ------------------
 func getSystemStats() SystemStats {
 	stats := SystemStats{}
 
-	// CPU
 	cpuPercent, err := cpu.Percent(0, false)
 	if err == nil && len(cpuPercent) > 0 {
-		stats.CPU = cpuPercent[0]
+		stats.CPU = round2(cpuPercent[0])
+	} else {
+		stats.CPU = 0
 	}
 
-	// Memory
 	memInfo, err := mem.VirtualMemory()
 	if err == nil {
-		stats.Memory = memInfo.UsedPercent
+		stats.Memory = round2(memInfo.UsedPercent)
+	} else {
+		stats.Memory = 0
 	}
 
-	// GPU
-	stats.GPU = getSmoothedGPUUsage()
+	stats.GPU = round2(getSmoothedGPUUsage())
 
-	// Network
 	upload, download := getNetworkSpeed()
-	stats.Upload = upload
-	stats.Download = download
+	stats.Upload = round2(upload)
+	stats.Download = round2(download)
+
+	stats.DiskUsage = round2(getDiskUsage())
 
 	return stats
 }
@@ -128,50 +132,76 @@ func getNetworkSpeed() (float64, float64) {
 
 	currentStats := netStats[0]
 	currentTime := time.Now()
-
-	timeDiff := currentTime.Sub(lastTime).Seconds()
+	timeDiff := currentTime.Sub(lastNetTime).Seconds()
 	if timeDiff == 0 {
 		return 0, 0
 	}
 
-	uploadBytes := float64(currentStats.BytesSent - lastNetStats.BytesSent)
-	downloadBytes := float64(currentStats.BytesRecv - lastNetStats.BytesRecv)
+	uploadMBps := float64(currentStats.BytesSent-lastNetStats.BytesSent) / timeDiff / 1_000_000
+	downloadMBps := float64(currentStats.BytesRecv-lastNetStats.BytesRecv) / timeDiff / 1_000_000
 
-	uploadMbps := (uploadBytes / timeDiff) * 8 / 1_000_000
-	downloadMbps := (downloadBytes / timeDiff) * 8 / 1_000_000
+	if uploadMBps < 0 {
+		uploadMBps = 0
+	}
+	if downloadMBps < 0 {
+		downloadMBps = 0
+	}
+	const maxMBps = 9999.99
+	if uploadMBps > maxMBps {
+		uploadMBps = maxMBps
+	}
+	if downloadMBps > maxMBps {
+		downloadMBps = maxMBps
+	}
 
 	lastNetStats = currentStats
-	lastTime = currentTime
+	lastNetTime = currentTime
 
-	return uploadMbps, downloadMbps
+	return uploadMBps, downloadMBps
 }
 
-// ------------------ GPU USAGE (nvidia-smi) ------------------
+// ------------------ DISK USAGE ------------------
+func getDiskUsage() float64 {
+	partitions, err := disk.Partitions(false)
+	if err != nil {
+		return 0
+	}
+
+	var totalSize, totalUsed uint64
+	for _, partition := range partitions {
+		usage, err := disk.Usage(partition.Mountpoint)
+		if err != nil {
+			continue
+		}
+		totalSize += usage.Total
+		totalUsed += usage.Used
+	}
+
+	if totalSize == 0 {
+		return 0
+	}
+	return float64(totalUsed) / float64(totalSize) * 100
+}
+
+// ------------------ GPU ------------------
 func checkNvidiaSmi() bool {
 	cmd := exec.Command("nvidia-smi", "--version")
-	err := cmd.Run()
-	return err == nil
+	return cmd.Run() == nil
 }
 
 func sampleGPUUsage() {
 	if !nvidiaSmiAvailable {
 		return
 	}
-
-	// Query GPU utilization using nvidia-smi
 	cmd := exec.Command("nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits")
 	output, err := cmd.Output()
 	if err != nil {
 		return
 	}
-
-	// Parse the output (should be a number like "45")
-	gpuStr := strings.TrimSpace(string(output))
-	gpuUsage, err := strconv.ParseFloat(gpuStr, 64)
+	gpuUsage, err := strconv.ParseFloat(strings.TrimSpace(string(output)), 64)
 	if err != nil {
 		return
 	}
-
 	addGPUSample(gpuUsage)
 }
 
@@ -199,7 +229,6 @@ func findESP32Port() (string, error) {
 	if err != nil {
 		return "", err
 	}
-
 	for _, portName := range ports {
 		mode := &serial.Mode{BaudRate: 115200}
 		port, err := serial.Open(portName, mode)
@@ -207,10 +236,8 @@ func findESP32Port() (string, error) {
 			continue
 		}
 
-		// handshake using updated ID
 		port.Write([]byte("ID:ed1d2a7c8af14a27b77b1c127d806aed\n"))
 		buf := make([]byte, 128)
-
 		port.SetReadTimeout(500 * time.Millisecond)
 		n, _ := port.Read(buf)
 		port.Close()
@@ -219,7 +246,6 @@ func findESP32Port() (string, error) {
 			return portName, nil
 		}
 	}
-
 	return "", fmt.Errorf("no Pulse Monitor device found")
 }
 
@@ -233,7 +259,6 @@ func openPortWithRetry() serial.Port {
 				return port
 			}
 		}
-
 		fmt.Println("Pulse Monitor not detected, retrying in 2 seconds...")
 		time.Sleep(2 * time.Second)
 	}
