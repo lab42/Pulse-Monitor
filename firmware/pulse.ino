@@ -3,7 +3,7 @@
 #define LV_MEMCPY_MEMSET_STD 1           // Use standard memcpy/memset
 #define LV_ATTRIBUTE_FAST_MEM IRAM_ATTR  // Place critical LVGL functions in IRAM
 #include <lvgl.h>
-#include <cfg.h>
+#include <conf.h>
 #include <Arduino.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_rgb.h>
@@ -146,7 +146,7 @@ void create_ui()
     lv_obj_set_size(main_container, LCD_H_RES - (OUTER_MARGIN * 2), LCD_V_RES - (OUTER_MARGIN * 2));
     lv_obj_center(main_container);
     lv_obj_set_flex_flow(main_container, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_all(main_container, 10, 0);
+    lv_obj_set_style_pad_all(main_container, 20, 0);
     lv_obj_set_style_pad_row(main_container, ROW_SPACING, 0);
     lv_obj_set_style_pad_column(main_container, 0, 0);
     lv_obj_set_flex_align(main_container, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
@@ -318,7 +318,7 @@ void create_ui()
     download_label = lv_label_create(download_container);
     lv_obj_set_style_text_color(download_label, TEXT_COLOR, 0);
     lv_obj_set_style_text_font(download_label, &comfortaa_40, 0);
-    lv_label_set_text(download_label, "0 MB/s");
+    lv_label_set_text(download_label, "0 Mbps");
 
     // Upload container
     lv_obj_t *upload_container = lv_obj_create(network_row);
@@ -339,7 +339,7 @@ void create_ui()
     upload_label = lv_label_create(upload_container);
     lv_obj_set_style_text_color(upload_label, TEXT_COLOR, 0);
     lv_obj_set_style_text_font(upload_label, &comfortaa_40, 0);
-    lv_label_set_text(upload_label, "0 MB/s");
+    lv_label_set_text(upload_label, "0 Mbps");
 }
 
 void setup()
@@ -444,7 +444,7 @@ void loop() {
             if (msgBuffer.length() > 0) {
                 if (msgBuffer == "ID:ed1d2a7c8af14a27b77b1c127d806aed") {
                     Serial.println("ID:91d8141364e544e181fca2382cd6751a");
-                    msgBuffer = "";  // <-- ADD THIS
+                    msgBuffer = "";
                     continue;
                 }
 
@@ -533,8 +533,8 @@ void loop() {
                     
                     char upload_str[20];
                     char download_str[20];
-                    snprintf(upload_str, 20, "%.2f MB/s", up);
-                    snprintf(download_str, 20, "%.2f MB/s", down);
+                    snprintf(upload_str, 20, "%.2f Mbps", up);
+                    snprintf(download_str, 20, "%.2f Mbps", down);
                     
                     lv_label_set_text(upload_label, upload_str);
                     lv_label_set_text(download_label, download_str);
@@ -551,6 +551,19 @@ void loop() {
         if (serialConnected) {
             serialConnected = false;
             lv_obj_set_style_bg_color(scr, CRITICAL_COLOR, 0);
+            
+            // Reset all values to 0
+            lv_bar_set_value(cpu_bar, 0, LV_ANIM_ON);
+            lv_bar_set_value(memory_bar, 0, LV_ANIM_ON);
+            lv_bar_set_value(gpu_bar, 0, LV_ANIM_ON);
+            lv_bar_set_value(disk_bar, 0, LV_ANIM_ON);
+            
+            lv_label_set_text(cpu_label, "0.00%");
+            lv_label_set_text(memory_label, "0.00%");
+            lv_label_set_text(gpu_label, "0.00%");
+            lv_label_set_text(disk_label, "0.00%");
+            lv_label_set_text(upload_label, "0.00 Mbps");
+            lv_label_set_text(download_label, "0.00 Mbps");
         }
     }
     

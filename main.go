@@ -36,7 +36,11 @@ var (
 	nvidiaSmiAvailable bool = false
 
 	gpuSamples      []float64
-	gpuSampleWindow = 10
+	gpuSampleWindow = 5
+
+	uploadSamples       []float64
+	downloadSamples     []float64
+	networkSampleWindow = 5
 )
 
 // ------------------ MAIN ------------------
@@ -63,6 +67,7 @@ func main() {
 		defer ticker.Stop()
 		for range ticker.C {
 			sampleGPUUsage()
+			sampleNetworkSpeed()
 		}
 	}()
 
@@ -113,51 +118,87 @@ func getSystemStats() SystemStats {
 	}
 
 	stats.GPU = round2(getSmoothedGPUUsage())
-
-	upload, download := getNetworkSpeed()
-	stats.Upload = round2(upload)
-	stats.Download = round2(download)
-
+	stats.Upload = round2(getSmoothedUpload())
+	stats.Download = round2(getSmoothedDownload())
 	stats.DiskUsage = round2(getDiskUsage())
 
 	return stats
 }
 
 // ------------------ NETWORK SPEED ------------------
-func getNetworkSpeed() (float64, float64) {
+func sampleNetworkSpeed() {
 	netStats, err := net.IOCounters(false)
 	if err != nil || len(netStats) == 0 {
-		return 0, 0
+		return
 	}
 
 	currentStats := netStats[0]
 	currentTime := time.Now()
 	timeDiff := currentTime.Sub(lastNetTime).Seconds()
 	if timeDiff == 0 {
-		return 0, 0
+		return
 	}
 
-	uploadMBps := float64(currentStats.BytesSent-lastNetStats.BytesSent) / timeDiff / 1_000_000
-	downloadMBps := float64(currentStats.BytesRecv-lastNetStats.BytesRecv) / timeDiff / 1_000_000
+	// Calculate Mbps (megabits per second)
+	uploadMbps := float64(currentStats.BytesSent-lastNetStats.BytesSent) * 8 / timeDiff / 1_000_000
+	downloadMbps := float64(currentStats.BytesRecv-lastNetStats.BytesRecv) * 8 / timeDiff / 1_000_000
 
-	if uploadMBps < 0 {
-		uploadMBps = 0
+	// Sanity checks
+	if uploadMbps < 0 {
+		uploadMbps = 0
 	}
-	if downloadMBps < 0 {
-		downloadMBps = 0
+	if downloadMbps < 0 {
+		downloadMbps = 0
 	}
-	const maxMBps = 9999.99
-	if uploadMBps > maxMBps {
-		uploadMBps = maxMBps
+	const maxMbps = 9999.99
+	if uploadMbps > maxMbps {
+		uploadMbps = maxMbps
 	}
-	if downloadMBps > maxMBps {
-		downloadMBps = maxMBps
+	if downloadMbps > maxMbps {
+		downloadMbps = maxMbps
 	}
+
+	addUploadSample(uploadMbps)
+	addDownloadSample(downloadMbps)
 
 	lastNetStats = currentStats
 	lastNetTime = currentTime
+}
 
-	return uploadMBps, downloadMBps
+func addUploadSample(sample float64) {
+	uploadSamples = append(uploadSamples, sample)
+	if len(uploadSamples) > networkSampleWindow {
+		uploadSamples = uploadSamples[1:]
+	}
+}
+
+func addDownloadSample(sample float64) {
+	downloadSamples = append(downloadSamples, sample)
+	if len(downloadSamples) > networkSampleWindow {
+		downloadSamples = downloadSamples[1:]
+	}
+}
+
+func getSmoothedUpload() float64 {
+	if len(uploadSamples) == 0 {
+		return 0
+	}
+	var sum float64
+	for _, v := range uploadSamples {
+		sum += v
+	}
+	return sum / float64(len(uploadSamples))
+}
+
+func getSmoothedDownload() float64 {
+	if len(downloadSamples) == 0 {
+		return 0
+	}
+	var sum float64
+	for _, v := range downloadSamples {
+		sum += v
+	}
+	return sum / float64(len(downloadSamples))
 }
 
 // ------------------ DISK USAGE ------------------
