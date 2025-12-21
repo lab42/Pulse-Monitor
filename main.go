@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"os/exec"
@@ -10,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shamaton/msgpack/v2"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
@@ -124,15 +124,13 @@ func sendStatsLoop(port serial.Port) {
 
 	for range ticker.C {
 		stats := getSystemStats()
-		jsonData, err := json.Marshal(stats)
+		msgPackData, err := msgpack.Marshal(stats)
 		if err != nil {
-			log.Println("Error marshaling JSON:", err)
+			log.Println("Error marshaling MsgPack:", err)
 			continue
 		}
 
-		log.Println(string(jsonData))
-
-		if _, err = port.Write(append(jsonData, '\n')); err != nil {
+		if _, err = port.Write(append(msgPackData, '\n')); err != nil {
 			fmt.Println("Lost connection to Pulse Monitor — reconnecting...")
 			port.Close()
 			port = openPortWithRetry()
