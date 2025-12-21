@@ -420,7 +420,9 @@ void setup()
     create_ui();
 }
 
-String msgBuffer = "";
+uint8_t msgBuffer[256];
+size_t msgLen = 0;
+
 bool serialConnected = false;
 unsigned long lastDataTime = 0;
 const unsigned long CONNECTION_TIMEOUT = 5000;
@@ -432,7 +434,7 @@ void loop() {
     }
 
     while (Serial.available() > 0) {
-        char c = Serial.read();
+        uint8_t c = Serial.read();
         lastDataTime = millis();
 
         if (!serialConnected) {
@@ -441,23 +443,32 @@ void loop() {
         }
 
         if (c == '\n' || c == '\r') {
-            if (msgBuffer.length() > 0) {
-                if (msgBuffer == "ID:ed1d2a7c8af14a27b77b1c127d806aed") {
-                    Serial.println("ID:91d8141364e544e181fca2382cd6751a");
-                    msgBuffer = "";
-                    continue;
+            if (msgLen > 0) {
+
+                // --- ASCII ID handshake (special case) ---
+                if (msgLen < sizeof(msgBuffer)) {
+                    msgBuffer[msgLen] = 0; // null-terminate for strcmp
+
+                    if (strcmp((char*)msgBuffer,
+                               "ID:ed1d2a7c8af14a27b77b1c127d806aed") == 0) {
+                        Serial.println("ID:91d8141364e544e181fca2382cd6751a");
+                        msgLen = 0;
+                        continue;
+                    }
                 }
 
+                // --- MessagePack decoding ---
                 DynamicJsonDocument doc(512);
-                DeserializationError error = deserializeMsgPack(doc, msgBuffer);
+                DeserializationError error =
+                    deserializeMsgPack(doc, msgBuffer, msgLen);
 
                 if (!error) {
-                    float cpu = doc.containsKey("cpu") ? doc["cpu"].as<float>() : 0.0;
-                    float mem = doc.containsKey("memory") ? doc["memory"].as<float>() : 0.0;
-                    float gpu = doc.containsKey("gpu") ? doc["gpu"].as<float>() : 0.0;
-                    float up = doc.containsKey("upload") ? doc["upload"].as<float>() : 0.0;
-                    float down = doc.containsKey("download") ? doc["download"].as<float>() : 0.0;
-                    float disk = doc.containsKey("disk") ? doc["disk"].as<float>() : 0.0;
+                    float cpu  = doc["cpu"]      | 0.0;
+                    float mem  = doc["memory"]   | 0.0;
+                    float gpu  = doc["gpu"]      | 0.0;
+                    float up   = doc["upload"]   | 0.0;
+                    float down = doc["download"] | 0.0;
+                    float disk = doc["disk"]     | 0.0;
 
                     if (gpu == 0.0) {
                         lv_obj_add_flag(gpu_row, LV_OBJ_FLAG_HIDDEN);
@@ -480,7 +491,7 @@ void loop() {
                     lv_obj_report_style_change(&cpu_bar_style_indic);
 
                     char cpu_str[20];
-                    snprintf(cpu_str, 20, "%.2f%%", cpu);
+                    snprintf(cpu_str, sizeof(cpu_str), "%.2f%%", cpu);
                     lv_label_set_text(cpu_label, cpu_str);
 
                     int imem = (int)(mem + 0.5f);
@@ -496,7 +507,7 @@ void loop() {
                     lv_obj_report_style_change(&memory_bar_style_indic);
 
                     char memory_str[20];
-                    snprintf(memory_str, 20, "%.2f%%", mem);
+                    snprintf(memory_str, sizeof(memory_str), "%.2f%%", mem);
                     lv_label_set_text(memory_label, memory_str);
 
                     int igpu = (int)(gpu + 0.5f);
@@ -512,7 +523,7 @@ void loop() {
                     lv_obj_report_style_change(&gpu_bar_style_indic);
 
                     char gpu_str[20];
-                    snprintf(gpu_str, 20, "%.2f%%", gpu);
+                    snprintf(gpu_str, sizeof(gpu_str), "%.2f%%", gpu);
                     lv_label_set_text(gpu_label, gpu_str);
 
                     int idisk = (int)(disk + 0.5f);
@@ -528,31 +539,37 @@ void loop() {
                     lv_obj_report_style_change(&disk_bar_style_indic);
 
                     char disk_str[20];
-                    snprintf(disk_str, 20, "%.2f%%", disk);
+                    snprintf(disk_str, sizeof(disk_str), "%.2f%%", disk);
                     lv_label_set_text(disk_label, disk_str);
 
                     char upload_str[20];
                     char download_str[20];
-                    snprintf(upload_str, 20, "%.2f Mbps", up);
-                    snprintf(download_str, 20, "%.2f Mbps", down);
+                    snprintf(upload_str, sizeof(upload_str), "%.2f Mbps", up);
+                    snprintf(download_str, sizeof(download_str), "%.2f Mbps", down);
 
                     lv_label_set_text(upload_label, upload_str);
                     lv_label_set_text(download_label, download_str);
                 }
-                msgBuffer = "";
+
+                msgLen = 0; // reset buffer
             }
         } else {
-            msgBuffer += c;
+            // Append byte if space allows
+            if (msgLen < sizeof(msgBuffer)) {
+                msgBuffer[msgLen++] = c;
+            } else {
+                // Overflow protection
+                msgLen = 0;
+            }
         }
     }
 
-    // Only check timeout if we've started timing
+    // --- Connection timeout handling ---
     if (lastDataTime > 0 && millis() - lastDataTime > CONNECTION_TIMEOUT) {
         if (serialConnected) {
             serialConnected = false;
             lv_obj_set_style_bg_color(scr, CRITICAL_COLOR, 0);
 
-            // Reset all values to 0
             lv_bar_set_value(cpu_bar, 0, LV_ANIM_ON);
             lv_bar_set_value(memory_bar, 0, LV_ANIM_ON);
             lv_bar_set_value(gpu_bar, 0, LV_ANIM_ON);
