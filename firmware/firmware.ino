@@ -420,135 +420,143 @@ void setup()
     create_ui();
 }
 
-uint8_t msgBuffer[256];
-size_t msgLen = 0;
+#include <Arduino.h>
+#include <ArduinoJson.h>
+#include <lvgl.h>
 
 bool serialConnected = false;
 unsigned long lastDataTime = 0;
 const unsigned long CONNECTION_TIMEOUT = 5000;
 
-enum RxMode {
-    RX_ASCII,
-    RX_LEN_MSB,
-    RX_LEN_LSB,
-    RX_MSGPACK
-};
-
-RxMode rxMode = RX_ASCII;
-
-uint16_t expectedLen = 0;
-uint16_t receivedLen = 0;
+void updateUI(float cpu, float mem, float gpu, float up, float down, float disk);
+void resetUI();
 
 void loop() {
-    // Initialize lastDataTime on first run
-    if (lastDataTime == 0) {
-        lastDataTime = millis();
-    }
+    // --- Handshake (ASCII only) ---
+    if (!serialConnected && Serial.available()) {
+        String line = Serial.readStringUntil('\n');
+        line.trim();
 
-    while (Serial.available() > 0) {
-        uint8_t c = Serial.read();
-        lastDataTime = millis();
-
-        if (!serialConnected) {
+        if (line == "ID:ed1d2a7c8af14a27b77b1c127d806aed") {
+            Serial.println("ID:91d8141364e544e181fca2382cd6751a");
             serialConnected = true;
+            lastDataTime = millis();
             lv_obj_set_style_bg_color(scr, BG_COLOR, 0);
         }
+    }
 
-        switch (rxMode) {
+    // --- MessagePack stream decoding ---
+    if (serialConnected && Serial.available()) {
+        DynamicJsonDocument doc(512);
+        DeserializationError err = deserializeMsgPack(doc, Serial);
 
-        // ---------------- ASCII (ID handshake only) ----------------
-        case RX_ASCII:
-            if (c == '\n' || c == '\r') {
-                if (msgLen > 0) {
-                    msgBuffer[msgLen] = 0;
+        if (!err) {
+            lastDataTime = millis();
 
-                    if (strcmp((char*)msgBuffer,
-                        "ID:ed1d2a7c8af14a27b77b1c127d806aed") == 0) {
-                        Serial.println("ID:91d8141364e544e181fca2382cd6751a");
-                    }
-                }
-                msgLen = 0;
+            float cpu  = doc["cpu"]      | 0.0;
+            float mem  = doc["memory"]   | 0.0;
+            float gpu  = doc["gpu"]      | 0.0;
+            float up   = doc["upload"]   | 0.0;
+            float down = doc["download"] | 0.0;
+            float disk = doc["disk"]     | 0.0;
+
+            // ---- UI update (full LVGL code) ----
+            if (gpu == 0.0) {
+                lv_obj_add_flag(gpu_row, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_clear_flag(disk_row, LV_OBJ_FLAG_HIDDEN);
             } else {
-                if (msgLen < sizeof(msgBuffer) - 1) {
-                    msgBuffer[msgLen++] = c;
-                }
+                lv_obj_add_flag(disk_row, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_clear_flag(gpu_row, LV_OBJ_FLAG_HIDDEN);
             }
 
-            // MessagePack always starts with length → switch mode
-            if (Serial.available() >= 2) {
-                rxMode = RX_LEN_MSB;
-            }
-            break;
-
-        // ---------------- MessagePack length (MSB) ----------------
-        case RX_LEN_MSB:
-            expectedLen = ((uint16_t)c) << 8;
-            rxMode = RX_LEN_LSB;
-            break;
-
-        // ---------------- MessagePack length (LSB) ----------------
-        case RX_LEN_LSB:
-            expectedLen |= c;
-            receivedLen = 0;
-
-            if (expectedLen == 0 || expectedLen > sizeof(msgBuffer)) {
-                rxMode = RX_ASCII; // invalid frame
+            int icpu = (int)(cpu + 0.5f);
+            lv_bar_set_value(cpu_bar, icpu, LV_ANIM_ON);
+            if (icpu > CRITICAL_THRESHOLD) {
+                lv_style_set_bg_color(&cpu_bar_style_indic, CRITICAL_COLOR);
+            } else if (icpu > WARNING_THRESHOLD) {
+                lv_style_set_bg_color(&cpu_bar_style_indic, WARNING_COLOR);
             } else {
-                rxMode = RX_MSGPACK;
+                lv_style_set_bg_color(&cpu_bar_style_indic, ACCENT_COLOR);
             }
-            break;
+            lv_obj_report_style_change(&cpu_bar_style_indic);
 
-        // ---------------- MessagePack payload ----------------
-        case RX_MSGPACK:
-            msgBuffer[receivedLen++] = c;
+            char cpu_str[20];
+            snprintf(cpu_str, sizeof(cpu_str), "%.2f%%", cpu);
+            lv_label_set_text(cpu_label, cpu_str);
 
-            if (receivedLen == expectedLen) {
-                DynamicJsonDocument doc(512);
-                DeserializationError error =
-                    deserializeMsgPack(doc, msgBuffer, expectedLen);
-
-                if (!error) {
-                    float cpu  = doc["cpu"]      | 0.0;
-                    float mem  = doc["memory"]   | 0.0;
-                    float gpu  = doc["gpu"]      | 0.0;
-                    float up   = doc["upload"]   | 0.0;
-                    float down = doc["download"] | 0.0;
-                    float disk = doc["disk"]     | 0.0;
-
-                    // ---- UI update EXACTLY as before ----
-                    // (no changes needed below this point)
-                    // ------------------------------------
-                    // your existing LVGL code here
-                }
-
-                rxMode = RX_ASCII; // ready for next frame
-                msgLen = 0;
+            int imem = (int)(mem + 0.5f);
+            lv_bar_set_value(memory_bar, imem, LV_ANIM_ON);
+            if (imem > CRITICAL_THRESHOLD) {
+                lv_style_set_bg_color(&memory_bar_style_indic, CRITICAL_COLOR);
+            } else if (imem > WARNING_THRESHOLD) {
+                lv_style_set_bg_color(&memory_bar_style_indic, WARNING_COLOR);
+            } else {
+                lv_style_set_bg_color(&memory_bar_style_indic, ACCENT_COLOR);
             }
-            break;
+            lv_obj_report_style_change(&memory_bar_style_indic);
+
+            char memory_str[20];
+            snprintf(memory_str, sizeof(memory_str), "%.2f%%", mem);
+            lv_label_set_text(memory_label, memory_str);
+
+            int igpu = (int)(gpu + 0.5f);
+            lv_bar_set_value(gpu_bar, igpu, LV_ANIM_ON);
+            if (igpu > CRITICAL_THRESHOLD) {
+                lv_style_set_bg_color(&gpu_bar_style_indic, CRITICAL_COLOR);
+            } else if (igpu > WARNING_THRESHOLD) {
+                lv_style_set_bg_color(&gpu_bar_style_indic, WARNING_COLOR);
+            } else {
+                lv_style_set_bg_color(&gpu_bar_style_indic, ACCENT_COLOR);
+            }
+            lv_obj_report_style_change(&gpu_bar_style_indic);
+
+            char gpu_str[20];
+            snprintf(gpu_str, sizeof(gpu_str), "%.2f%%", gpu);
+            lv_label_set_text(gpu_label, gpu_str);
+
+            int idisk = (int)(disk + 0.5f);
+            lv_bar_set_value(disk_bar, idisk, LV_ANIM_ON);
+            if (idisk > CRITICAL_THRESHOLD) {
+                lv_style_set_bg_color(&disk_bar_style_indic, CRITICAL_COLOR);
+            } else if (idisk > WARNING_THRESHOLD) {
+                lv_style_set_bg_color(&disk_bar_style_indic, WARNING_COLOR);
+            } else {
+                lv_style_set_bg_color(&disk_bar_style_indic, ACCENT_COLOR);
+            }
+            lv_obj_report_style_change(&disk_bar_style_indic);
+
+            char disk_str[20];
+            snprintf(disk_str, sizeof(disk_str), "%.2f%%", disk);
+            lv_label_set_text(disk_label, disk_str);
+
+            char upload_str[20];
+            char download_str[20];
+            snprintf(upload_str, sizeof(upload_str), "%.2f Mbps", up);
+            snprintf(download_str, sizeof(download_str), "%.2f Mbps", down);
+
+            lv_label_set_text(upload_label, upload_str);
+            lv_label_set_text(download_label, download_str);
         }
     }
 
+    // --- Connection timeout ---
+    if (serialConnected && millis() - lastDataTime > CONNECTION_TIMEOUT) {
+        serialConnected = false;
+        lv_bar_set_value(cpu_bar, 0, LV_ANIM_ON);
+        lv_bar_set_value(memory_bar, 0, LV_ANIM_ON);
+        lv_bar_set_value(gpu_bar, 0, LV_ANIM_ON);
+        lv_bar_set_value(disk_bar, 0, LV_ANIM_ON);
 
-    // --- Connection timeout handling ---
-    if (lastDataTime > 0 && millis() - lastDataTime > CONNECTION_TIMEOUT) {
-        if (serialConnected) {
-            serialConnected = false;
-            lv_obj_set_style_bg_color(scr, CRITICAL_COLOR, 0);
-
-            lv_bar_set_value(cpu_bar, 0, LV_ANIM_ON);
-            lv_bar_set_value(memory_bar, 0, LV_ANIM_ON);
-            lv_bar_set_value(gpu_bar, 0, LV_ANIM_ON);
-            lv_bar_set_value(disk_bar, 0, LV_ANIM_ON);
-
-            lv_label_set_text(cpu_label, "0.00%");
-            lv_label_set_text(memory_label, "0.00%");
-            lv_label_set_text(gpu_label, "0.00%");
-            lv_label_set_text(disk_label, "0.00%");
-            lv_label_set_text(upload_label, "0.00 Mbps");
-            lv_label_set_text(download_label, "0.00 Mbps");
-        }
+        lv_label_set_text(cpu_label, "0.00%");
+        lv_label_set_text(memory_label, "0.00%");
+        lv_label_set_text(gpu_label, "0.00%");
+        lv_label_set_text(disk_label, "0.00%");
+        lv_label_set_text(upload_label, "0.00 Mbps");
+        lv_label_set_text(download_label, "0.00 Mbps");
+        lv_obj_set_style_bg_color(scr, CRITICAL_COLOR, 0);
     }
 
     lv_timer_handler();
     delay(1);
 }
+
