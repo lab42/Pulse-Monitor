@@ -33,7 +33,6 @@ const sampleWindow = 5
 // ------------------ GLOBALS ------------------
 var (
 	lastNetStats net.IOCountersStat
-	lastNetTime  time.Time
 	netMutex     sync.Mutex
 
 	nvidiaSmiAvailable bool = false
@@ -67,7 +66,6 @@ func main() {
 	if len(netStats) > 0 {
 		netMutex.Lock()
 		lastNetStats = netStats[0]
-		lastNetTime = time.Now()
 		netMutex.Unlock()
 	}
 
@@ -162,6 +160,8 @@ func gpuSampler() {
 func networkSampler() {
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
+	const timeDiff = 0.2 // 200ms in seconds
+
 	for range ticker.C {
 		netStats, err := net.IOCounters(false)
 		if err != nil || len(netStats) == 0 {
@@ -169,14 +169,8 @@ func networkSampler() {
 		}
 
 		currentStats := netStats[0]
-		currentTime := time.Now()
 
 		netMutex.Lock()
-		timeDiff := currentTime.Sub(lastNetTime).Seconds()
-		if timeDiff == 0 {
-			netMutex.Unlock()
-			continue
-		}
 
 		// Calculate Mbps
 		uploadMbps := float64(currentStats.BytesSent-lastNetStats.BytesSent) * 8 / timeDiff / 1_000_000
@@ -198,7 +192,6 @@ func networkSampler() {
 		}
 
 		lastNetStats = currentStats
-		lastNetTime = currentTime
 		netMutex.Unlock()
 
 		uploadMutex.Lock()
