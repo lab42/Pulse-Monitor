@@ -108,7 +108,7 @@ void create_ui()
 
     lv_style_init(&cpu_bar_style_indic);
     lv_style_set_bg_color(&cpu_bar_style_indic, ACCENT_COLOR);
-    lv_style_set_radius(&cpu_bar_style_indic, 0);
+    lv_style_set_radius(&cpu_bar_style_indic, BAR_RADIUS);
     lv_style_set_anim_time(&cpu_bar_style_indic, ANIM_TIME);
 
     lv_style_init(&memory_bar_style_main);

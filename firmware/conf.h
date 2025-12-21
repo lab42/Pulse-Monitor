@@ -4,20 +4,36 @@
 #define THEME_DARK   1
 #define THEME_LIGHT  2
 
-#define ACTIVE_THEME THEME_DARK
+#define ACCENT_COLOR_SAPPHIRE 1
+#define ACCENT_COLOR_MAUVE 2
+#define ACCENT_COLOR_GREEN 3
+#define ACCENT_COLOR_PEACH 4
+
+#define ACTIVE_THEME THEME_LIGHT
+#define ACTIVE_ACCENT_COLOR ACCENT_COLOR_SAPPHIRE
+
+#if ACTIVE_ACCENT_COLOR == ACCENT_COLOR_SAPPHIRE
+  #define ACCENT_COLOR lv_color_hex(0x209fb5)
+#elif ACTIVE_ACCENT_COLOR == ACCENT_COLOR_MAUVE
+  #define ACCENT_COLOR lv_color_hex(0x8839ef)
+#elif ACTIVE_ACCENT_COLOR == ACCENT_COLOR_GREEN
+  #define ACCENT_COLOR lv_color_hex(0x40a02b)
+#elif ACTIVE_ACCENT_COLOR == ACCENT_COLOR_PEACH
+  #define ACCENT_COLOR lv_color_hex(0xfe640b)
+#else
+  #error "Invalid ACCENT_COLOR selected"
+#endif
 
 #if ACTIVE_THEME == THEME_DARK
   #define BG_COLOR lv_color_hex(0x000000)
   #define TEXT_COLOR lv_color_hex(0xeff1f5)
   #define BAR_BG_COLOR lv_color_hex(0x4c4f69)
-  #define ACCENT_COLOR lv_color_hex(0x8839ef)
   #define WARNING_COLOR lv_color_hex(0xdf8e1d)
   #define CRITICAL_COLOR lv_color_hex(0xd20f39)
 #elif ACTIVE_THEME == THEME_LIGHT
   #define BG_COLOR lv_color_hex(0xeff1f5)
   #define TEXT_COLOR lv_color_hex(0x4c4f69)
   #define BAR_BG_COLOR lv_color_hex(0xdce0e8)
-  #define ACCENT_COLOR lv_color_hex(0x1e66f5)
   #define WARNING_COLOR lv_color_hex(0xdf8e1d)
   #define CRITICAL_COLOR lv_color_hex(0xd20f39)
 #else
