@@ -104,6 +104,13 @@ func initializeNetworkStats() {
 }
 
 func startSamplers() {
+	// Take initial samples so all metrics appear immediately
+	sampleCPU()
+	sampleMemory()
+	sampleGPU()
+	sampleNetwork()
+	sampleDisk()
+
 	go runSampler(200*time.Millisecond, sampleCPU)
 	go runSampler(200*time.Millisecond, sampleMemory)
 	go runSampler(200*time.Millisecond, sampleGPU)
