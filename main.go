@@ -27,59 +27,91 @@ type SystemStats struct {
 }
 
 // ------------------ CONFIG ------------------
-const esp32ID = "ID:91d8141364e544e181fca2382cd6751a"
-const sampleWindow = 5
+const (
+	esp32ID      = "ID:91d8141364e544e181fca2382cd6751a"
+	hostID       = "ID:ed1d2a7c8af14a27b77b1c127d806aed"
+	sampleWindow = 5
+	baudRate     = 115200
+)
+
+// ------------------ METRIC TRACKER ------------------
+type metricTracker struct {
+	samples []float64
+	mu      sync.Mutex
+}
+
+func (m *metricTracker) add(value float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.samples = append(m.samples, value)
+	if len(m.samples) > sampleWindow {
+		m.samples = m.samples[1:]
+	}
+}
+
+func (m *metricTracker) average() float64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.samples) == 0 {
+		return 0
+	}
+	var sum float64
+	for _, v := range m.samples {
+		sum += v
+	}
+	return sum / float64(len(m.samples))
+}
 
 // ------------------ GLOBALS ------------------
 var (
-	lastNetStats net.IOCountersStat
-	netMutex     sync.Mutex
+	cpuTracker      metricTracker
+	memoryTracker   metricTracker
+	gpuTracker      metricTracker
+	uploadTracker   metricTracker
+	downloadTracker metricTracker
+	diskTracker     metricTracker
 
-	nvidiaSmiAvailable bool = false
-
-	// Sample arrays with mutexes for thread safety
-	cpuSamples      []float64
-	cpuMutex        sync.Mutex
-	memorySamples   []float64
-	memoryMutex     sync.Mutex
-	gpuSamples      []float64
-	gpuMutex        sync.Mutex
-	uploadSamples   []float64
-	uploadMutex     sync.Mutex
-	downloadSamples []float64
-	downloadMutex   sync.Mutex
-	diskSamples     []float64
-	diskMutex       sync.Mutex
+	lastNetStats       net.IOCountersStat
+	netMutex           sync.Mutex
+	nvidiaSmiAvailable bool
 )
 
 // ------------------ MAIN ------------------
 func main() {
-	if checkNvidiaSmi() {
+	nvidiaSmiAvailable = checkNvidiaSmi()
+	if nvidiaSmiAvailable {
 		log.Println("nvidia-smi found, GPU monitoring enabled")
-		nvidiaSmiAvailable = true
 	} else {
 		log.Println("nvidia-smi not found, GPU stats disabled")
-		nvidiaSmiAvailable = false
 	}
 
-	netStats, _ := net.IOCounters(false)
-	if len(netStats) > 0 {
-		netMutex.Lock()
-		lastNetStats = netStats[0]
-		netMutex.Unlock()
-	}
+	initializeNetworkStats()
 
 	port := openPortWithRetry()
 	defer port.Close()
 
-	// Start parallel samplers
-	go cpuSampler()
-	go memorySampler()
-	go gpuSampler()
-	go networkSampler()
-	go diskSampler()
+	startSamplers()
 
-	// Send smoothed stats every second
+	sendStatsLoop(port)
+}
+
+func initializeNetworkStats() {
+	if netStats, err := net.IOCounters(false); err == nil && len(netStats) > 0 {
+		netMutex.Lock()
+		lastNetStats = netStats[0]
+		netMutex.Unlock()
+	}
+}
+
+func startSamplers() {
+	go runSampler(200*time.Millisecond, sampleCPU)
+	go runSampler(200*time.Millisecond, sampleMemory)
+	go runSampler(200*time.Millisecond, sampleGPU)
+	go runSampler(200*time.Millisecond, sampleNetwork)
+	go runSampler(5*time.Second, sampleDisk)
+}
+
+func sendStatsLoop(port serial.Port) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -93,220 +125,156 @@ func main() {
 
 		log.Println(string(jsonData))
 
-		_, err = port.Write(append(jsonData, '\n'))
-		if err != nil {
+		if _, err = port.Write(append(jsonData, '\n')); err != nil {
 			fmt.Println("Lost connection to Pulse Monitor — reconnecting...")
 			port.Close()
 			port = openPortWithRetry()
-			continue
 		}
 	}
 }
 
-// ------------------ ROUNDING HELPER ------------------
+// ------------------ GENERIC SAMPLER ------------------
+func runSampler(interval time.Duration, sampleFunc func()) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for range ticker.C {
+		sampleFunc()
+	}
+}
+
+// ------------------ INDIVIDUAL SAMPLERS ------------------
+func sampleCPU() {
+	if cpuPercent, err := cpu.Percent(0, false); err == nil && len(cpuPercent) > 0 {
+		cpuTracker.add(cpuPercent[0])
+	}
+}
+
+func sampleMemory() {
+	if memInfo, err := mem.VirtualMemory(); err == nil {
+		memoryTracker.add(memInfo.UsedPercent)
+	}
+}
+
+func sampleGPU() {
+	if !nvidiaSmiAvailable {
+		return
+	}
+	cmd := exec.Command("nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits")
+	if output, err := cmd.Output(); err == nil {
+		if gpuUsage, err := strconv.ParseFloat(strings.TrimSpace(string(output)), 64); err == nil {
+			gpuTracker.add(gpuUsage)
+		}
+	}
+}
+
+func sampleNetwork() {
+	netStats, err := net.IOCounters(false)
+	if err != nil || len(netStats) == 0 {
+		return
+	}
+
+	currentStats := netStats[0]
+	const timeDiff = 0.2 // 200ms in seconds
+
+	netMutex.Lock()
+	bytesSent := currentStats.BytesSent - lastNetStats.BytesSent
+	bytesRecv := currentStats.BytesRecv - lastNetStats.BytesRecv
+	lastNetStats = currentStats
+	netMutex.Unlock()
+
+	uploadMbps := clamp(float64(bytesSent)*8/timeDiff/1_000_000, 0, 9999.99)
+	downloadMbps := clamp(float64(bytesRecv)*8/timeDiff/1_000_000, 0, 9999.99)
+
+	uploadTracker.add(uploadMbps)
+	downloadTracker.add(downloadMbps)
+}
+
+func sampleDisk() {
+	partitions, err := disk.Partitions(false)
+	if err != nil {
+		return
+	}
+
+	var totalSize, totalUsed uint64
+	for _, partition := range partitions {
+		if usage, err := disk.Usage(partition.Mountpoint); err == nil {
+			totalSize += usage.Total
+			totalUsed += usage.Used
+		}
+	}
+
+	if totalSize > 0 {
+		diskPercent := float64(totalUsed) / float64(totalSize) * 100
+		diskTracker.add(diskPercent)
+	}
+}
+
+// ------------------ HELPERS ------------------
+func clamp(value, min, max float64) float64 {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
+}
+
 func round2(v float64) float64 {
 	return float64(int(v*100)) / 100
 }
 
-// ------------------ PARALLEL SAMPLERS ------------------
-func cpuSampler() {
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
-	for range ticker.C {
-		cpuPercent, err := cpu.Percent(0, false)
-		if err == nil && len(cpuPercent) > 0 {
-			cpuMutex.Lock()
-			addSample(&cpuSamples, cpuPercent[0])
-			cpuMutex.Unlock()
-		}
-	}
-}
-
-func memorySampler() {
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
-	for range ticker.C {
-		memInfo, err := mem.VirtualMemory()
-		if err == nil {
-			memoryMutex.Lock()
-			addSample(&memorySamples, memInfo.UsedPercent)
-			memoryMutex.Unlock()
-		}
-	}
-}
-
-func gpuSampler() {
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
-	for range ticker.C {
-		if !nvidiaSmiAvailable {
-			continue
-		}
-		cmd := exec.Command("nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits")
-		output, err := cmd.Output()
-		if err != nil {
-			continue
-		}
-		gpuUsage, err := strconv.ParseFloat(strings.TrimSpace(string(output)), 64)
-		if err != nil {
-			continue
-		}
-		gpuMutex.Lock()
-		addSample(&gpuSamples, gpuUsage)
-		gpuMutex.Unlock()
-	}
-}
-
-func networkSampler() {
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
-	const timeDiff = 0.2 // 200ms in seconds
-
-	for range ticker.C {
-		netStats, err := net.IOCounters(false)
-		if err != nil || len(netStats) == 0 {
-			continue
-		}
-
-		currentStats := netStats[0]
-
-		netMutex.Lock()
-
-		// Calculate Mbps
-		uploadMbps := float64(currentStats.BytesSent-lastNetStats.BytesSent) * 8 / timeDiff / 1_000_000
-		downloadMbps := float64(currentStats.BytesRecv-lastNetStats.BytesRecv) * 8 / timeDiff / 1_000_000
-
-		// Sanity checks
-		if uploadMbps < 0 {
-			uploadMbps = 0
-		}
-		if downloadMbps < 0 {
-			downloadMbps = 0
-		}
-		const maxMbps = 9999.99
-		if uploadMbps > maxMbps {
-			uploadMbps = maxMbps
-		}
-		if downloadMbps > maxMbps {
-			downloadMbps = maxMbps
-		}
-
-		lastNetStats = currentStats
-		netMutex.Unlock()
-
-		uploadMutex.Lock()
-		addSample(&uploadSamples, uploadMbps)
-		uploadMutex.Unlock()
-
-		downloadMutex.Lock()
-		addSample(&downloadSamples, downloadMbps)
-		downloadMutex.Unlock()
-	}
-}
-
-func diskSampler() {
-	// Disk usage changes slowly, sample every 5 seconds
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-	for range ticker.C {
-		partitions, err := disk.Partitions(false)
-		if err != nil {
-			continue
-		}
-
-		var totalSize, totalUsed uint64
-		for _, partition := range partitions {
-			usage, err := disk.Usage(partition.Mountpoint)
-			if err != nil {
-				continue
-			}
-			totalSize += usage.Total
-			totalUsed += usage.Used
-		}
-
-		if totalSize == 0 {
-			continue
-		}
-		diskPercent := float64(totalUsed) / float64(totalSize) * 100
-
-		diskMutex.Lock()
-		addSample(&diskSamples, diskPercent)
-		diskMutex.Unlock()
-	}
-}
-
-// ------------------ SAMPLE MANAGEMENT ------------------
-func addSample(samples *[]float64, value float64) {
-	*samples = append(*samples, value)
-	if len(*samples) > sampleWindow {
-		*samples = (*samples)[1:]
-	}
-}
-
-func getSmoothed(samples []float64, mutex *sync.Mutex) float64 {
-	mutex.Lock()
-	defer mutex.Unlock()
-
-	if len(samples) == 0 {
-		return 0
-	}
-	var sum float64
-	for _, v := range samples {
-		sum += v
-	}
-	return sum / float64(len(samples))
-}
-
-// ------------------ SYSTEM STATS ------------------
 func getSystemStats() SystemStats {
 	return SystemStats{
-		CPU:      round2(getSmoothed(cpuSamples, &cpuMutex)),
-		Memory:   round2(getSmoothed(memorySamples, &memoryMutex)),
-		GPU:      round2(getSmoothed(gpuSamples, &gpuMutex)),
-		Upload:   round2(getSmoothed(uploadSamples, &uploadMutex)),
-		Download: round2(getSmoothed(downloadSamples, &downloadMutex)),
-		Disk:     round2(getSmoothed(diskSamples, &diskMutex)),
+		CPU:      round2(cpuTracker.average()),
+		Memory:   round2(memoryTracker.average()),
+		GPU:      round2(gpuTracker.average()),
+		Upload:   round2(uploadTracker.average()),
+		Download: round2(downloadTracker.average()),
+		Disk:     round2(diskTracker.average()),
 	}
 }
 
-// ------------------ GPU ------------------
 func checkNvidiaSmi() bool {
 	cmd := exec.Command("nvidia-smi", "--version")
 	return cmd.Run() == nil
 }
 
-// ------------------ ESP32 HANDSHAKE ------------------
+// ------------------ ESP32 CONNECTION ------------------
 func findESP32Port() (string, error) {
 	ports, err := serial.GetPortsList()
 	if err != nil {
 		return "", err
 	}
+
 	for _, portName := range ports {
-		mode := &serial.Mode{BaudRate: 115200}
-		port, err := serial.Open(portName, mode)
-		if err != nil {
-			continue
-		}
-
-		port.Write([]byte("ID:ed1d2a7c8af14a27b77b1c127d806aed\n"))
-		buf := make([]byte, 128)
-		port.SetReadTimeout(500 * time.Millisecond)
-		n, _ := port.Read(buf)
-		port.Close()
-
-		if n > 0 && strings.Contains(string(buf[:n]), esp32ID) {
+		if isESP32Port(portName) {
 			return portName, nil
 		}
 	}
 	return "", fmt.Errorf("no Pulse Monitor device found")
 }
 
+func isESP32Port(portName string) bool {
+	port, err := serial.Open(portName, &serial.Mode{BaudRate: baudRate})
+	if err != nil {
+		return false
+	}
+	defer port.Close()
+
+	port.Write([]byte(hostID + "\n"))
+	buf := make([]byte, 128)
+	port.SetReadTimeout(500 * time.Millisecond)
+	n, _ := port.Read(buf)
+
+	return n > 0 && strings.Contains(string(buf[:n]), esp32ID)
+}
+
 func openPortWithRetry() serial.Port {
 	for {
 		portName, err := findESP32Port()
 		if err == nil {
-			port, err := serial.Open(portName, &serial.Mode{BaudRate: 115200})
-			if err == nil {
+			if port, err := serial.Open(portName, &serial.Mode{BaudRate: baudRate}); err == nil {
 				fmt.Println("Connected to", portName)
 				return port
 			}
