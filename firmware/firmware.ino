@@ -423,7 +423,7 @@ void setup()
 String msgBuffer = "";
 bool serialConnected = false;
 unsigned long lastDataTime = 0;
-const unsigned long CONNECTION_TIMEOUT = 3000;
+const unsigned long CONNECTION_TIMEOUT = 5000;
 
 void loop() {
     // Initialize lastDataTime on first run
@@ -457,7 +457,7 @@ void loop() {
                     float gpu = doc.containsKey("gpu") ? doc["gpu"].as<float>() : 0.0;
                     float up = doc.containsKey("upload") ? doc["upload"].as<float>() : 0.0;
                     float down = doc.containsKey("download") ? doc["download"].as<float>() : 0.0;
-                    float disk = doc.containsKey("disk_usage") ? doc["disk_usage"].as<float>() : 0.0;
+                    float disk = doc.containsKey("disk") ? doc["disk"].as<float>() : 0.0;
 
                     if (gpu == 0.0) {
                         lv_obj_add_flag(gpu_row, LV_OBJ_FLAG_HIDDEN);

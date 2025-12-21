@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
@@ -17,30 +18,39 @@ import (
 )
 
 type SystemStats struct {
-	CPU       float64 `json:"cpu"`
-	Memory    float64 `json:"memory"`
-	GPU       float64 `json:"gpu"`
-	Upload    float64 `json:"upload"`
-	Download  float64 `json:"download"`
-	DiskUsage float64 `json:"disk_usage"`
+	CPU      float64 `json:"cpu"`
+	Memory   float64 `json:"memory"`
+	GPU      float64 `json:"gpu"`
+	Upload   float64 `json:"upload"`
+	Download float64 `json:"download"`
+	Disk     float64 `json:"disk"`
 }
 
 // ------------------ CONFIG ------------------
 const esp32ID = "ID:91d8141364e544e181fca2382cd6751a"
+const sampleWindow = 5
 
 // ------------------ GLOBALS ------------------
 var (
 	lastNetStats net.IOCountersStat
 	lastNetTime  time.Time
+	netMutex     sync.Mutex
 
 	nvidiaSmiAvailable bool = false
 
+	// Sample arrays with mutexes for thread safety
+	cpuSamples      []float64
+	cpuMutex        sync.Mutex
+	memorySamples   []float64
+	memoryMutex     sync.Mutex
 	gpuSamples      []float64
-	gpuSampleWindow = 5
-
-	uploadSamples       []float64
-	downloadSamples     []float64
-	networkSampleWindow = 5
+	gpuMutex        sync.Mutex
+	uploadSamples   []float64
+	uploadMutex     sync.Mutex
+	downloadSamples []float64
+	downloadMutex   sync.Mutex
+	diskSamples     []float64
+	diskMutex       sync.Mutex
 )
 
 // ------------------ MAIN ------------------
@@ -55,22 +65,23 @@ func main() {
 
 	netStats, _ := net.IOCounters(false)
 	if len(netStats) > 0 {
+		netMutex.Lock()
 		lastNetStats = netStats[0]
 		lastNetTime = time.Now()
+		netMutex.Unlock()
 	}
 
 	port := openPortWithRetry()
 	defer port.Close()
 
-	go func() {
-		ticker := time.NewTicker(200 * time.Millisecond)
-		defer ticker.Stop()
-		for range ticker.C {
-			sampleGPUUsage()
-			sampleNetworkSpeed()
-		}
-	}()
+	// Start parallel samplers
+	go cpuSampler()
+	go memorySampler()
+	go gpuSampler()
+	go networkSampler()
+	go diskSampler()
 
+	// Send smoothed stats every second
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -99,169 +110,176 @@ func round2(v float64) float64 {
 	return float64(int(v*100)) / 100
 }
 
-// ------------------ SYSTEM STATS ------------------
-func getSystemStats() SystemStats {
-	stats := SystemStats{}
-
-	cpuPercent, err := cpu.Percent(0, false)
-	if err == nil && len(cpuPercent) > 0 {
-		stats.CPU = round2(cpuPercent[0])
-	} else {
-		stats.CPU = 0
-	}
-
-	memInfo, err := mem.VirtualMemory()
-	if err == nil {
-		stats.Memory = round2(memInfo.UsedPercent)
-	} else {
-		stats.Memory = 0
-	}
-
-	stats.GPU = round2(getSmoothedGPUUsage())
-	stats.Upload = round2(getSmoothedUpload())
-	stats.Download = round2(getSmoothedDownload())
-	stats.DiskUsage = round2(getDiskUsage())
-
-	return stats
-}
-
-// ------------------ NETWORK SPEED ------------------
-func sampleNetworkSpeed() {
-	netStats, err := net.IOCounters(false)
-	if err != nil || len(netStats) == 0 {
-		return
-	}
-
-	currentStats := netStats[0]
-	currentTime := time.Now()
-	timeDiff := currentTime.Sub(lastNetTime).Seconds()
-	if timeDiff == 0 {
-		return
-	}
-
-	// Calculate Mbps (megabits per second)
-	uploadMbps := float64(currentStats.BytesSent-lastNetStats.BytesSent) * 8 / timeDiff / 1_000_000
-	downloadMbps := float64(currentStats.BytesRecv-lastNetStats.BytesRecv) * 8 / timeDiff / 1_000_000
-
-	// Sanity checks
-	if uploadMbps < 0 {
-		uploadMbps = 0
-	}
-	if downloadMbps < 0 {
-		downloadMbps = 0
-	}
-	const maxMbps = 9999.99
-	if uploadMbps > maxMbps {
-		uploadMbps = maxMbps
-	}
-	if downloadMbps > maxMbps {
-		downloadMbps = maxMbps
-	}
-
-	addUploadSample(uploadMbps)
-	addDownloadSample(downloadMbps)
-
-	lastNetStats = currentStats
-	lastNetTime = currentTime
-}
-
-func addUploadSample(sample float64) {
-	uploadSamples = append(uploadSamples, sample)
-	if len(uploadSamples) > networkSampleWindow {
-		uploadSamples = uploadSamples[1:]
+// ------------------ PARALLEL SAMPLERS ------------------
+func cpuSampler() {
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for range ticker.C {
+		cpuPercent, err := cpu.Percent(0, false)
+		if err == nil && len(cpuPercent) > 0 {
+			cpuMutex.Lock()
+			addSample(&cpuSamples, cpuPercent[0])
+			cpuMutex.Unlock()
+		}
 	}
 }
 
-func addDownloadSample(sample float64) {
-	downloadSamples = append(downloadSamples, sample)
-	if len(downloadSamples) > networkSampleWindow {
-		downloadSamples = downloadSamples[1:]
+func memorySampler() {
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for range ticker.C {
+		memInfo, err := mem.VirtualMemory()
+		if err == nil {
+			memoryMutex.Lock()
+			addSample(&memorySamples, memInfo.UsedPercent)
+			memoryMutex.Unlock()
+		}
 	}
 }
 
-func getSmoothedUpload() float64 {
-	if len(uploadSamples) == 0 {
-		return 0
-	}
-	var sum float64
-	for _, v := range uploadSamples {
-		sum += v
-	}
-	return sum / float64(len(uploadSamples))
-}
-
-func getSmoothedDownload() float64 {
-	if len(downloadSamples) == 0 {
-		return 0
-	}
-	var sum float64
-	for _, v := range downloadSamples {
-		sum += v
-	}
-	return sum / float64(len(downloadSamples))
-}
-
-// ------------------ DISK USAGE ------------------
-func getDiskUsage() float64 {
-	partitions, err := disk.Partitions(false)
-	if err != nil {
-		return 0
-	}
-
-	var totalSize, totalUsed uint64
-	for _, partition := range partitions {
-		usage, err := disk.Usage(partition.Mountpoint)
+func gpuSampler() {
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for range ticker.C {
+		if !nvidiaSmiAvailable {
+			continue
+		}
+		cmd := exec.Command("nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits")
+		output, err := cmd.Output()
 		if err != nil {
 			continue
 		}
-		totalSize += usage.Total
-		totalUsed += usage.Used
+		gpuUsage, err := strconv.ParseFloat(strings.TrimSpace(string(output)), 64)
+		if err != nil {
+			continue
+		}
+		gpuMutex.Lock()
+		addSample(&gpuSamples, gpuUsage)
+		gpuMutex.Unlock()
 	}
+}
 
-	if totalSize == 0 {
+func networkSampler() {
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for range ticker.C {
+		netStats, err := net.IOCounters(false)
+		if err != nil || len(netStats) == 0 {
+			continue
+		}
+
+		currentStats := netStats[0]
+		currentTime := time.Now()
+
+		netMutex.Lock()
+		timeDiff := currentTime.Sub(lastNetTime).Seconds()
+		if timeDiff == 0 {
+			netMutex.Unlock()
+			continue
+		}
+
+		// Calculate Mbps
+		uploadMbps := float64(currentStats.BytesSent-lastNetStats.BytesSent) * 8 / timeDiff / 1_000_000
+		downloadMbps := float64(currentStats.BytesRecv-lastNetStats.BytesRecv) * 8 / timeDiff / 1_000_000
+
+		// Sanity checks
+		if uploadMbps < 0 {
+			uploadMbps = 0
+		}
+		if downloadMbps < 0 {
+			downloadMbps = 0
+		}
+		const maxMbps = 9999.99
+		if uploadMbps > maxMbps {
+			uploadMbps = maxMbps
+		}
+		if downloadMbps > maxMbps {
+			downloadMbps = maxMbps
+		}
+
+		lastNetStats = currentStats
+		lastNetTime = currentTime
+		netMutex.Unlock()
+
+		uploadMutex.Lock()
+		addSample(&uploadSamples, uploadMbps)
+		uploadMutex.Unlock()
+
+		downloadMutex.Lock()
+		addSample(&downloadSamples, downloadMbps)
+		downloadMutex.Unlock()
+	}
+}
+
+func diskSampler() {
+	// Disk usage changes slowly, sample every 5 seconds
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		partitions, err := disk.Partitions(false)
+		if err != nil {
+			continue
+		}
+
+		var totalSize, totalUsed uint64
+		for _, partition := range partitions {
+			usage, err := disk.Usage(partition.Mountpoint)
+			if err != nil {
+				continue
+			}
+			totalSize += usage.Total
+			totalUsed += usage.Used
+		}
+
+		if totalSize == 0 {
+			continue
+		}
+		diskPercent := float64(totalUsed) / float64(totalSize) * 100
+
+		diskMutex.Lock()
+		addSample(&diskSamples, diskPercent)
+		diskMutex.Unlock()
+	}
+}
+
+// ------------------ SAMPLE MANAGEMENT ------------------
+func addSample(samples *[]float64, value float64) {
+	*samples = append(*samples, value)
+	if len(*samples) > sampleWindow {
+		*samples = (*samples)[1:]
+	}
+}
+
+func getSmoothed(samples []float64, mutex *sync.Mutex) float64 {
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	if len(samples) == 0 {
 		return 0
 	}
-	return float64(totalUsed) / float64(totalSize) * 100
+	var sum float64
+	for _, v := range samples {
+		sum += v
+	}
+	return sum / float64(len(samples))
+}
+
+// ------------------ SYSTEM STATS ------------------
+func getSystemStats() SystemStats {
+	return SystemStats{
+		CPU:      round2(getSmoothed(cpuSamples, &cpuMutex)),
+		Memory:   round2(getSmoothed(memorySamples, &memoryMutex)),
+		GPU:      round2(getSmoothed(gpuSamples, &gpuMutex)),
+		Upload:   round2(getSmoothed(uploadSamples, &uploadMutex)),
+		Download: round2(getSmoothed(downloadSamples, &downloadMutex)),
+		Disk:     round2(getSmoothed(diskSamples, &diskMutex)),
+	}
 }
 
 // ------------------ GPU ------------------
 func checkNvidiaSmi() bool {
 	cmd := exec.Command("nvidia-smi", "--version")
 	return cmd.Run() == nil
-}
-
-func sampleGPUUsage() {
-	if !nvidiaSmiAvailable {
-		return
-	}
-	cmd := exec.Command("nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits")
-	output, err := cmd.Output()
-	if err != nil {
-		return
-	}
-	gpuUsage, err := strconv.ParseFloat(strings.TrimSpace(string(output)), 64)
-	if err != nil {
-		return
-	}
-	addGPUSample(gpuUsage)
-}
-
-func addGPUSample(sample float64) {
-	gpuSamples = append(gpuSamples, sample)
-	if len(gpuSamples) > gpuSampleWindow {
-		gpuSamples = gpuSamples[1:]
-	}
-}
-
-func getSmoothedGPUUsage() float64 {
-	if len(gpuSamples) == 0 {
-		return 0
-	}
-	var sum float64
-	for _, v := range gpuSamples {
-		sum += v
-	}
-	return sum / float64(len(gpuSamples))
 }
 
 // ------------------ ESP32 HANDSHAKE ------------------
