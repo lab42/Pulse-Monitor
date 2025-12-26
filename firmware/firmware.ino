@@ -14,8 +14,8 @@
 
 // ---- Custom fonts (C -> C++ safe) ----
 extern "C" {
-    extern const lv_font_t comfortaa_40;
-    extern const lv_font_t bootstrap_icons_80;
+extern const lv_font_t comfortaa_40;
+extern const lv_font_t bootstrap_icons_80;
 }
 
 #define LV_FONT_DEFAULT &comfortaa_40
@@ -418,16 +418,7 @@ void setup() {
       .flags = {.fb_in_psram = 1},
   };
 
-<<<<<<< Updated upstream
-    ESP_ERROR_CHECK(esp_lcd_new_rgb_panel(&panel_config, &panel_handle));
-
-    esp_lcd_rgb_panel_event_callbacks_t cbs = { .on_vsync = on_vsync_event };
-    ESP_ERROR_CHECK(esp_lcd_rgb_panel_register_event_callbacks(panel_handle, &cbs, NULL));
-    ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
-    ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
-=======
   ESP_ERROR_CHECK(esp_lcd_new_rgb_panel(&panel_config, &panel_handle));
->>>>>>> Stashed changes
 
   esp_lcd_rgb_panel_event_callbacks_t cbs = {.on_vsync = on_vsync_event};
   ESP_ERROR_CHECK(
@@ -462,30 +453,11 @@ void setup() {
   create_ui();
 }
 
-#include <Arduino.h>
-#include <ArduinoJson.h>
-#include <lvgl.h>
-
+String msgBuffer = "";
 bool serialConnected = false;
 unsigned long lastDataTime = 0;
 const unsigned long CONNECTION_TIMEOUT = 5000;
 
-<<<<<<< Updated upstream
-void updateUI(float cpu, float mem, float gpu, float up, float down, float disk);
-void resetUI();
-
-void loop() {
-    // --- Handshake (ASCII only) ---
-    if (!serialConnected && Serial.available()) {
-        String line = Serial.readStringUntil('\n');
-        line.trim();
-
-        if (line == "ID:ed1d2a7c8af14a27b77b1c127d806aed") {
-            Serial.println("ID:91d8141364e544e181fca2382cd6751a");
-            serialConnected = true;
-            lastDataTime = millis();
-            lv_obj_set_style_bg_color(scr, BG_COLOR, 0);
-=======
 void loop() {
   // Initialize lastDataTime on first run
   if (lastDataTime == 0) {
@@ -507,227 +479,108 @@ void loop() {
           Serial.println("ID:91d8141364e544e181fca2382cd6751a");
           msgBuffer = "";
           continue;
->>>>>>> Stashed changes
         }
-    }
-
-<<<<<<< Updated upstream
-    // --- MessagePack stream decoding ---
-    if (serialConnected && Serial.available()) {
-        DynamicJsonDocument doc(512);
-        DeserializationError err = deserializeMsgPack(doc, Serial);
-
-        if (!err) {
-            lastDataTime = millis();
-
-            float cpu  = doc["cpu"]      | 0.0;
-            float mem  = doc["memory"]   | 0.0;
-            float gpu  = doc["gpu"]      | 0.0;
-            float up   = doc["upload"]   | 0.0;
-            float down = doc["download"] | 0.0;
-            float disk = doc["disk"]     | 0.0;
-
-            // ---- UI update (full LVGL code) ----
-            if (gpu == 0.0) {
-                lv_obj_add_flag(gpu_row, LV_OBJ_FLAG_HIDDEN);
-                lv_obj_clear_flag(disk_row, LV_OBJ_FLAG_HIDDEN);
-            } else {
-                lv_obj_add_flag(disk_row, LV_OBJ_FLAG_HIDDEN);
-                lv_obj_clear_flag(gpu_row, LV_OBJ_FLAG_HIDDEN);
-            }
-
-            int icpu = (int)(cpu + 0.5f);
-            lv_bar_set_value(cpu_bar, icpu, LV_ANIM_ON);
-            if (icpu > CRITICAL_THRESHOLD) {
-                lv_style_set_bg_color(&cpu_bar_style_indic, CRITICAL_COLOR);
-            } else if (icpu > WARNING_THRESHOLD) {
-                lv_style_set_bg_color(&cpu_bar_style_indic, WARNING_COLOR);
-            } else {
-                lv_style_set_bg_color(&cpu_bar_style_indic, ACCENT_COLOR);
-            }
-            lv_obj_report_style_change(&cpu_bar_style_indic);
-
-            char cpu_str[20];
-            snprintf(cpu_str, sizeof(cpu_str), "%.2f%%", cpu);
-            lv_label_set_text(cpu_label, cpu_str);
-
-            int imem = (int)(mem + 0.5f);
-            lv_bar_set_value(memory_bar, imem, LV_ANIM_ON);
-            if (imem > CRITICAL_THRESHOLD) {
-                lv_style_set_bg_color(&memory_bar_style_indic, CRITICAL_COLOR);
-            } else if (imem > WARNING_THRESHOLD) {
-                lv_style_set_bg_color(&memory_bar_style_indic, WARNING_COLOR);
-            } else {
-                lv_style_set_bg_color(&memory_bar_style_indic, ACCENT_COLOR);
-            }
-            lv_obj_report_style_change(&memory_bar_style_indic);
-
-            char memory_str[20];
-            snprintf(memory_str, sizeof(memory_str), "%.2f%%", mem);
-            lv_label_set_text(memory_label, memory_str);
-
-            int igpu = (int)(gpu + 0.5f);
-            lv_bar_set_value(gpu_bar, igpu, LV_ANIM_ON);
-            if (igpu > CRITICAL_THRESHOLD) {
-                lv_style_set_bg_color(&gpu_bar_style_indic, CRITICAL_COLOR);
-            } else if (igpu > WARNING_THRESHOLD) {
-                lv_style_set_bg_color(&gpu_bar_style_indic, WARNING_COLOR);
-            } else {
-                lv_style_set_bg_color(&gpu_bar_style_indic, ACCENT_COLOR);
-            }
-            lv_obj_report_style_change(&gpu_bar_style_indic);
-
-            char gpu_str[20];
-            snprintf(gpu_str, sizeof(gpu_str), "%.2f%%", gpu);
-            lv_label_set_text(gpu_label, gpu_str);
-
-            int idisk = (int)(disk + 0.5f);
-            lv_bar_set_value(disk_bar, idisk, LV_ANIM_ON);
-            if (idisk > CRITICAL_THRESHOLD) {
-                lv_style_set_bg_color(&disk_bar_style_indic, CRITICAL_COLOR);
-            } else if (idisk > WARNING_THRESHOLD) {
-                lv_style_set_bg_color(&disk_bar_style_indic, WARNING_COLOR);
-            } else {
-                lv_style_set_bg_color(&disk_bar_style_indic, ACCENT_COLOR);
-            }
-            lv_obj_report_style_change(&disk_bar_style_indic);
-
-            char disk_str[20];
-            snprintf(disk_str, sizeof(disk_str), "%.2f%%", disk);
-            lv_label_set_text(disk_label, disk_str);
-
-            char upload_str[20];
-            char download_str[20];
-            snprintf(upload_str, sizeof(upload_str), "%.2f Mbps", up);
-            snprintf(download_str, sizeof(download_str), "%.2f Mbps", down);
-
-            lv_label_set_text(upload_label, upload_str);
-            lv_label_set_text(download_label, download_str);
-=======
-        DynamicJsonDocument doc(512);
-        DeserializationError error = deserializeJson(doc, msgBuffer);
-
-        if (!error) {
-          float cpu = doc.containsKey("cpu") ? doc["cpu"].as<float>() : 0.0;
-          float mem =
-              doc.containsKey("memory") ? doc["memory"].as<float>() : 0.0;
-          float gpu = doc.containsKey("gpu") ? doc["gpu"].as<float>() : 0.0;
-          float up =
-              doc.containsKey("upload") ? doc["upload"].as<float>() : 0.0;
-          float down =
-              doc.containsKey("download") ? doc["download"].as<float>() : 0.0;
-          float disk = doc.containsKey("disk") ? doc["disk"].as<float>() : 0.0;
-
-          if (gpu == 0.0) {
-            lv_obj_add_flag(gpu_row, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_clear_flag(disk_row, LV_OBJ_FLAG_HIDDEN);
-          } else {
-            lv_obj_add_flag(disk_row, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_clear_flag(gpu_row, LV_OBJ_FLAG_HIDDEN);
-          }
-
-          int icpu = (int)(cpu + 0.5f);
-          lv_bar_set_value(cpu_bar, icpu, LV_ANIM_ON);
-
-          if (icpu > CRITICAL_THRESHOLD) {
-            lv_style_set_bg_color(&cpu_bar_style_indic, CRITICAL_COLOR);
-          } else if (icpu > WARNING_THRESHOLD) {
-            lv_style_set_bg_color(&cpu_bar_style_indic, WARNING_COLOR);
-          } else {
-            lv_style_set_bg_color(&cpu_bar_style_indic, ACCENT_COLOR);
-          }
-          lv_obj_report_style_change(&cpu_bar_style_indic);
-
-          char cpu_str[20];
-          snprintf(cpu_str, 20, "%.2f%%", cpu);
-          lv_label_set_text(cpu_label, cpu_str);
-
-          int imem = (int)(mem + 0.5f);
-          lv_bar_set_value(memory_bar, imem, LV_ANIM_ON);
-
-          if (imem > CRITICAL_THRESHOLD) {
-            lv_style_set_bg_color(&memory_bar_style_indic, CRITICAL_COLOR);
-          } else if (imem > WARNING_THRESHOLD) {
-            lv_style_set_bg_color(&memory_bar_style_indic, WARNING_COLOR);
-          } else {
-            lv_style_set_bg_color(&memory_bar_style_indic, ACCENT_COLOR);
-          }
-          lv_obj_report_style_change(&memory_bar_style_indic);
-
-          char memory_str[20];
-          snprintf(memory_str, 20, "%.2f%%", mem);
-          lv_label_set_text(memory_label, memory_str);
-
-          int igpu = (int)(gpu + 0.5f);
-          lv_bar_set_value(gpu_bar, igpu, LV_ANIM_ON);
-
-          if (igpu > CRITICAL_THRESHOLD) {
-            lv_style_set_bg_color(&gpu_bar_style_indic, CRITICAL_COLOR);
-          } else if (igpu > WARNING_THRESHOLD) {
-            lv_style_set_bg_color(&gpu_bar_style_indic, WARNING_COLOR);
-          } else {
-            lv_style_set_bg_color(&gpu_bar_style_indic, ACCENT_COLOR);
-          }
-          lv_obj_report_style_change(&gpu_bar_style_indic);
-
-          char gpu_str[20];
-          snprintf(gpu_str, 20, "%.2f%%", gpu);
-          lv_label_set_text(gpu_label, gpu_str);
-
-          int idisk = (int)(disk + 0.5f);
-          lv_bar_set_value(disk_bar, idisk, LV_ANIM_ON);
-
-          if (idisk > CRITICAL_THRESHOLD) {
-            lv_style_set_bg_color(&disk_bar_style_indic, CRITICAL_COLOR);
-          } else if (idisk > WARNING_THRESHOLD) {
-            lv_style_set_bg_color(&disk_bar_style_indic, WARNING_COLOR);
-          } else {
-            lv_style_set_bg_color(&disk_bar_style_indic, ACCENT_COLOR);
-          }
-          lv_obj_report_style_change(&disk_bar_style_indic);
-
-          char disk_str[20];
-          snprintf(disk_str, 20, "%.2f%%", disk);
-          lv_label_set_text(disk_label, disk_str);
-
-          char upload_str[20];
-          char download_str[20];
-          snprintf(upload_str, 20, "%.2f Mbps", up);
-          snprintf(download_str, 20, "%.2f Mbps", down);
-
-          lv_label_set_text(upload_label, upload_str);
-          lv_label_set_text(download_label, download_str);
->>>>>>> Stashed changes
-        }
-        msgBuffer = "";
       }
-    } else {
+
+      DynamicJsonDocument doc(512);
+      DeserializationError error = deserializeJson(doc, msgBuffer);
+
+      if (!error) {
+        float cpu = doc.containsKey("cpu") ? doc["cpu"].as<float>() : 0.0;
+        float mem = doc.containsKey("memory") ? doc["memory"].as<float>() : 0.0;
+        float gpu = doc.containsKey("gpu") ? doc["gpu"].as<float>() : 0.0;
+        float up = doc.containsKey("upload") ? doc["upload"].as<float>() : 0.0;
+        float down =
+            doc.containsKey("download") ? doc["download"].as<float>() : 0.0;
+        float disk = doc.containsKey("disk") ? doc["disk"].as<float>() : 0.0;
+
+        if (gpu == 0.0) {
+          lv_obj_add_flag(gpu_row, LV_OBJ_FLAG_HIDDEN);
+          lv_obj_clear_flag(disk_row, LV_OBJ_FLAG_HIDDEN);
+        } else {
+          lv_obj_add_flag(disk_row, LV_OBJ_FLAG_HIDDEN);
+          lv_obj_clear_flag(gpu_row, LV_OBJ_FLAG_HIDDEN);
+        }
+
+        int icpu = (int)(cpu + 0.5f);
+        lv_bar_set_value(cpu_bar, icpu, LV_ANIM_ON);
+
+        if (icpu > CRITICAL_THRESHOLD) {
+          lv_style_set_bg_color(&cpu_bar_style_indic, CRITICAL_COLOR);
+        } else if (icpu > WARNING_THRESHOLD) {
+          lv_style_set_bg_color(&cpu_bar_style_indic, WARNING_COLOR);
+        } else {
+          lv_style_set_bg_color(&cpu_bar_style_indic, ACCENT_COLOR);
+        }
+        lv_obj_report_style_change(&cpu_bar_style_indic);
+
+        char cpu_str[20];
+        snprintf(cpu_str, 20, "%.2f%%", cpu);
+        lv_label_set_text(cpu_label, cpu_str);
+
+        int imem = (int)(mem + 0.5f);
+        lv_bar_set_value(memory_bar, imem, LV_ANIM_ON);
+
+        if (imem > CRITICAL_THRESHOLD) {
+          lv_style_set_bg_color(&memory_bar_style_indic, CRITICAL_COLOR);
+        } else if (imem > WARNING_THRESHOLD) {
+          lv_style_set_bg_color(&memory_bar_style_indic, WARNING_COLOR);
+        } else {
+          lv_style_set_bg_color(&memory_bar_style_indic, ACCENT_COLOR);
+        }
+        lv_obj_report_style_change(&memory_bar_style_indic);
+
+        char memory_str[20];
+        snprintf(memory_str, 20, "%.2f%%", mem);
+        lv_label_set_text(memory_label, memory_str);
+
+        int igpu = (int)(gpu + 0.5f);
+        lv_bar_set_value(gpu_bar, igpu, LV_ANIM_ON);
+
+        if (igpu > CRITICAL_THRESHOLD) {
+          lv_style_set_bg_color(&gpu_bar_style_indic, CRITICAL_COLOR);
+        } else if (igpu > WARNING_THRESHOLD) {
+          lv_style_set_bg_color(&gpu_bar_style_indic, WARNING_COLOR);
+        } else {
+          lv_style_set_bg_color(&gpu_bar_style_indic, ACCENT_COLOR);
+        }
+        lv_obj_report_style_change(&gpu_bar_style_indic);
+
+        char gpu_str[20];
+        snprintf(gpu_str, 20, "%.2f%%", gpu);
+        lv_label_set_text(gpu_label, gpu_str);
+
+        int idisk = (int)(disk + 0.5f);
+        lv_bar_set_value(disk_bar, idisk, LV_ANIM_ON);
+
+        if (idisk > CRITICAL_THRESHOLD) {
+          lv_style_set_bg_color(&disk_bar_style_indic, CRITICAL_COLOR);
+        } else if (idisk > WARNING_THRESHOLD) {
+          lv_style_set_bg_color(&disk_bar_style_indic, WARNING_COLOR);
+        } else {
+          lv_style_set_bg_color(&disk_bar_style_indic, ACCENT_COLOR);
+        }
+        lv_obj_report_style_change(&disk_bar_style_indic);
+
+        char disk_str[20];
+        snprintf(disk_str, 20, "%.2f%%", disk);
+        lv_label_set_text(disk_label, disk_str);
+
+        char upload_str[20];
+        char download_str[20];
+        snprintf(upload_str, 20, "%.2f Mbps", up);
+        snprintf(download_str, 20, "%.2f Mbps", down);
+
+        lv_label_set_text(upload_label, upload_str);
+        lv_label_set_text(download_label, download_str);
+      }
+      msgBuffer = "";
+    }
+    else {
       msgBuffer += c;
     }
   }
 
-<<<<<<< Updated upstream
-    // --- Connection timeout ---
-    if (serialConnected && millis() - lastDataTime > CONNECTION_TIMEOUT) {
-        serialConnected = false;
-        lv_bar_set_value(cpu_bar, 0, LV_ANIM_ON);
-        lv_bar_set_value(memory_bar, 0, LV_ANIM_ON);
-        lv_bar_set_value(gpu_bar, 0, LV_ANIM_ON);
-        lv_bar_set_value(disk_bar, 0, LV_ANIM_ON);
-
-        lv_label_set_text(cpu_label, "0.00%");
-        lv_label_set_text(memory_label, "0.00%");
-        lv_label_set_text(gpu_label, "0.00%");
-        lv_label_set_text(disk_label, "0.00%");
-        lv_label_set_text(upload_label, "0.00 Mbps");
-        lv_label_set_text(download_label, "0.00 Mbps");
-        lv_obj_set_style_bg_color(scr, CRITICAL_COLOR, 0);
-    }
-
-    lv_timer_handler();
-    delay(1);
-=======
-  // Only check timeout if we've started timing
   if (lastDataTime > 0 && millis() - lastDataTime > CONNECTION_TIMEOUT) {
     if (serialConnected) {
       serialConnected = false;
@@ -750,6 +603,4 @@ void loop() {
 
   lv_timer_handler();
   delay(1);
->>>>>>> Stashed changes
 }
-
