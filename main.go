@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os/exec"
@@ -9,13 +10,21 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shamaton/msgpack/v2"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/shirou/gopsutil/v3/net"
 	"go.bug.st/serial"
 )
+
+type SystemStats struct {
+	CPU      float64 `json:"cpu"`
+	Memory   float64 `json:"memory"`
+	GPU      float64 `json:"gpu"`
+	Upload   float64 `json:"upload"`
+	Download float64 `json:"download"`
+	Disk     float64 `json:"disk"`
+}
 
 // ------------------ CONFIG ------------------
 const (
@@ -82,6 +91,7 @@ func main() {
 	defer port.Close()
 
 	startSamplers()
+
 	sendStatsLoop(port)
 }
 
@@ -94,13 +104,6 @@ func initializeNetworkStats() {
 }
 
 func startSamplers() {
-	// Prime values so UI updates immediately
-	sampleCPU()
-	sampleMemory()
-	sampleGPU()
-	sampleNetwork()
-	sampleDisk()
-
 	go runSampler(200*time.Millisecond, sampleCPU)
 	go runSampler(200*time.Millisecond, sampleMemory)
 	go runSampler(200*time.Millisecond, sampleGPU)
@@ -108,22 +111,21 @@ func startSamplers() {
 	go runSampler(5*time.Second, sampleDisk)
 }
 
-// ------------------ SEND LOOP ------------------
 func sendStatsLoop(port serial.Port) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		stats := buildMsgPackMap()
-
-		payload, err := msgpack.Marshal(stats)
+		stats := getSystemStats()
+		jsonData, err := json.Marshal(stats)
 		if err != nil {
-			log.Println("MsgPack marshal error:", err)
+			log.Println("Error marshaling JSON:", err)
 			continue
 		}
 
-		// newline-framed binary MessagePack
-		if _, err = port.Write(append(payload, '\n')); err != nil {
+		log.Println(string(jsonData))
+
+		if _, err = port.Write(append(jsonData, '\n')); err != nil {
 			fmt.Println("Lost connection to Pulse Monitor — reconnecting...")
 			port.Close()
 			port = openPortWithRetry()
@@ -131,7 +133,7 @@ func sendStatsLoop(port serial.Port) {
 	}
 }
 
-// ------------------ SAMPLERS ------------------
+// ------------------ GENERIC SAMPLER ------------------
 func runSampler(interval time.Duration, sampleFunc func()) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -140,6 +142,7 @@ func runSampler(interval time.Duration, sampleFunc func()) {
 	}
 }
 
+// ------------------ INDIVIDUAL SAMPLERS ------------------
 func sampleCPU() {
 	if cpuPercent, err := cpu.Percent(0, false); err == nil && len(cpuPercent) > 0 {
 		cpuTracker.add(cpuPercent[0])
@@ -156,11 +159,7 @@ func sampleGPU() {
 	if !nvidiaSmiAvailable {
 		return
 	}
-	cmd := exec.Command(
-		"nvidia-smi",
-		"--query-gpu=utilization.gpu",
-		"--format=csv,noheader,nounits",
-	)
+	cmd := exec.Command("nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits")
 	if output, err := cmd.Output(); err == nil {
 		if gpuUsage, err := strconv.ParseFloat(strings.TrimSpace(string(output)), 64); err == nil {
 			gpuTracker.add(gpuUsage)
@@ -174,13 +173,13 @@ func sampleNetwork() {
 		return
 	}
 
-	current := netStats[0]
-	const timeDiff = 0.2 // 200 ms
+	currentStats := netStats[0]
+	const timeDiff = 0.2 // 200ms in seconds
 
 	netMutex.Lock()
-	bytesSent := current.BytesSent - lastNetStats.BytesSent
-	bytesRecv := current.BytesRecv - lastNetStats.BytesRecv
-	lastNetStats = current
+	bytesSent := currentStats.BytesSent - lastNetStats.BytesSent
+	bytesRecv := currentStats.BytesRecv - lastNetStats.BytesRecv
+	lastNetStats = currentStats
 	netMutex.Unlock()
 
 	uploadMbps := clamp(float64(bytesSent)*8/timeDiff/1_000_000, 0, 9999.99)
@@ -197,27 +196,16 @@ func sampleDisk() {
 	}
 
 	var totalSize, totalUsed uint64
-	for _, p := range partitions {
-		if usage, err := disk.Usage(p.Mountpoint); err == nil {
+	for _, partition := range partitions {
+		if usage, err := disk.Usage(partition.Mountpoint); err == nil {
 			totalSize += usage.Total
 			totalUsed += usage.Used
 		}
 	}
 
 	if totalSize > 0 {
-		diskTracker.add(float64(totalUsed) / float64(totalSize) * 100)
-	}
-}
-
-// ------------------ MSGPACK PAYLOAD ------------------
-func buildMsgPackMap() map[string]float64 {
-	return map[string]float64{
-		"cpu":      round2(cpuTracker.average()),
-		"memory":   round2(memoryTracker.average()),
-		"gpu":      round2(gpuTracker.average()),
-		"upload":   round2(uploadTracker.average()),
-		"download": round2(downloadTracker.average()),
-		"disk":     round2(diskTracker.average()),
+		diskPercent := float64(totalUsed) / float64(totalSize) * 100
+		diskTracker.add(diskPercent)
 	}
 }
 
@@ -234,6 +222,17 @@ func clamp(value, min, max float64) float64 {
 
 func round2(v float64) float64 {
 	return float64(int(v*100)) / 100
+}
+
+func getSystemStats() SystemStats {
+	return SystemStats{
+		CPU:      round2(cpuTracker.average()),
+		Memory:   round2(memoryTracker.average()),
+		GPU:      round2(gpuTracker.average()),
+		Upload:   round2(uploadTracker.average()),
+		Download: round2(downloadTracker.average()),
+		Disk:     round2(diskTracker.average()),
+	}
 }
 
 func checkNvidiaSmi() bool {
