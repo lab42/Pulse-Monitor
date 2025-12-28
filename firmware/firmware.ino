@@ -3,7 +3,7 @@
 #define LV_MEMCPY_MEMSET_STD 1           // Use standard memcpy/memset
 #define LV_ATTRIBUTE_FAST_MEM IRAM_ATTR  // Place critical LVGL functions in IRAM
 #include <lvgl.h>
-#include <conf.h>
+#include <config.h>
 #include <Arduino.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_rgb.h>
@@ -30,9 +30,13 @@ lv_obj_t *gpu_row;
 lv_obj_t *gpu_icon;
 lv_obj_t *gpu_bar;
 lv_obj_t *gpu_label;
-
+lv_obj_t *network_row;
+lv_obj_t *download_container;
+lv_obj_t *download_icon;
 lv_obj_t *download_label;
+lv_obj_t *upload_container;
 lv_obj_t *upload_label;
+lv_obj_t *upload_icon;
 
 // Global styles 
 static lv_style_t cpu_bar_style_main;
@@ -98,46 +102,46 @@ void touchpad_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data)
 void create_ui()
 {
     scr = lv_scr_act();
-    lv_obj_set_style_bg_color(scr, CRITICAL_COLOR, 0);
+    lv_obj_set_style_bg_color(scr, config.getCriticalColor(), 0);
 
     // Initialize styles with animation
     lv_style_init(&cpu_bar_style_main);
-    lv_style_set_bg_color(&cpu_bar_style_main, BAR_BG_COLOR);
+    lv_style_set_bg_color(&cpu_bar_style_main, config.getBgColor());
     lv_style_set_radius(&cpu_bar_style_main, BAR_RADIUS);
     lv_style_set_anim_time(&cpu_bar_style_main, ANIM_TIME);
 
     lv_style_init(&cpu_bar_style_indic);
-    lv_style_set_bg_color(&cpu_bar_style_indic, ACCENT_COLOR);
+    lv_style_set_bg_color(&cpu_bar_style_indic, config.getAccentColorValue());
     lv_style_set_radius(&cpu_bar_style_indic, BAR_RADIUS);
     lv_style_set_anim_time(&cpu_bar_style_indic, ANIM_TIME);
 
     lv_style_init(&memory_bar_style_main);
-    lv_style_set_bg_color(&memory_bar_style_main, BAR_BG_COLOR);
+    lv_style_set_bg_color(&memory_bar_style_main, config.getBgColor());
     lv_style_set_radius(&memory_bar_style_main, BAR_RADIUS);
     lv_style_set_anim_time(&memory_bar_style_main, ANIM_TIME);
 
     lv_style_init(&memory_bar_style_indic);
-    lv_style_set_bg_color(&memory_bar_style_indic, ACCENT_COLOR);
+    lv_style_set_bg_color(&memory_bar_style_indic, config.getAccentColorValue());
     lv_style_set_radius(&memory_bar_style_indic, BAR_RADIUS);
     lv_style_set_anim_time(&memory_bar_style_indic, ANIM_TIME);
 
     lv_style_init(&disk_bar_style_main);
-    lv_style_set_bg_color(&disk_bar_style_main, BAR_BG_COLOR);
+    lv_style_set_bg_color(&disk_bar_style_main, config.getBgColor());
     lv_style_set_radius(&disk_bar_style_main, BAR_RADIUS);
     lv_style_set_anim_time(&disk_bar_style_main, ANIM_TIME);
 
     lv_style_init(&disk_bar_style_indic);
-    lv_style_set_bg_color(&disk_bar_style_indic, ACCENT_COLOR);
+    lv_style_set_bg_color(&disk_bar_style_indic, config.getAccentColorValue());
     lv_style_set_radius(&disk_bar_style_indic, BAR_RADIUS);
     lv_style_set_anim_time(&disk_bar_style_indic, ANIM_TIME);
 
     lv_style_init(&gpu_bar_style_main);
-    lv_style_set_bg_color(&gpu_bar_style_main, BAR_BG_COLOR);
+    lv_style_set_bg_color(&gpu_bar_style_main, config.getBgColor());
     lv_style_set_radius(&gpu_bar_style_main, BAR_RADIUS);
     lv_style_set_anim_time(&gpu_bar_style_main, ANIM_TIME);
 
     lv_style_init(&gpu_bar_style_indic);
-    lv_style_set_bg_color(&gpu_bar_style_indic, ACCENT_COLOR);
+    lv_style_set_bg_color(&gpu_bar_style_indic, config.getAccentColorValue());
     lv_style_set_radius(&gpu_bar_style_indic, BAR_RADIUS);
     lv_style_set_anim_time(&gpu_bar_style_indic, ANIM_TIME);
 
@@ -150,7 +154,7 @@ void create_ui()
     lv_obj_set_style_pad_row(main_container, ROW_SPACING, 0);
     lv_obj_set_style_pad_column(main_container, 0, 0);
     lv_obj_set_flex_align(main_container, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_bg_color(main_container, BG_COLOR, 0);
+    lv_obj_set_style_bg_color(main_container, config.getBgColor(), 0);
     lv_obj_set_style_border_width(main_container, 0, 0);
     lv_obj_set_style_radius(main_container, 10, LV_PART_MAIN);
     lv_obj_clear_flag(main_container, LV_OBJ_FLAG_SCROLLABLE);
@@ -165,27 +169,25 @@ void create_ui()
     lv_obj_set_style_pad_column(cpu_row, ICON_BAR_SPACING, 0);
     lv_obj_set_style_border_width(cpu_row, 0, 0);
     lv_obj_set_flex_grow(cpu_row, 0);
-    lv_obj_set_style_bg_color(cpu_row, BG_COLOR, 0);
+    lv_obj_set_style_bg_color(cpu_row, config.getBgColor(), 0);
     lv_obj_set_flex_align(cpu_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(cpu_row, LV_OBJ_FLAG_SCROLLABLE);
 
     cpu_icon = lv_label_create(cpu_row);
     lv_obj_set_style_text_font(cpu_icon, &bootstrap_icons_80, 0);
-    lv_obj_set_style_text_color(cpu_icon, TEXT_COLOR, 0);
+    lv_obj_set_style_text_color(cpu_icon, config.getTextColor(), 0);
     lv_label_set_text(cpu_icon, "\U0000F2D6");
     lv_obj_set_width(cpu_icon, ICON_WIDTH);
 
     cpu_bar = lv_bar_create(cpu_row);
     lv_bar_set_range(cpu_bar, 0, 100);
-    lv_bar_set_value(cpu_bar, 0, LV_ANIM_OFF);
     lv_obj_set_flex_grow(cpu_bar, 1);
     lv_obj_set_height(cpu_bar, BAR_HEIGHT);
     lv_obj_add_style(cpu_bar, &cpu_bar_style_main, LV_PART_MAIN);
     lv_obj_add_style(cpu_bar, &cpu_bar_style_indic, LV_PART_INDICATOR);
 
     cpu_label = lv_label_create(cpu_bar);
-    lv_label_set_text(cpu_label, "0%");
-    lv_obj_set_style_text_color(cpu_label, TEXT_COLOR, 0);
+    lv_obj_set_style_text_color(cpu_label, config.getTextColor(), 0);
     lv_obj_set_style_text_font(cpu_label, &comfortaa_40, 0);
     lv_obj_center(cpu_label);
 
@@ -197,27 +199,25 @@ void create_ui()
     lv_obj_set_style_pad_column(memory_row, ICON_BAR_SPACING, 0);
     lv_obj_set_style_border_width(memory_row, 0, 0);
     lv_obj_set_flex_grow(memory_row, 0);
-    lv_obj_set_style_bg_color(memory_row, BG_COLOR, 0);
+    lv_obj_set_style_bg_color(memory_row, config.getBgColor(), 0);
     lv_obj_set_flex_align(memory_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(memory_row, LV_OBJ_FLAG_SCROLLABLE);
 
     memory_icon = lv_label_create(memory_row);
     lv_obj_set_style_text_font(memory_icon, &bootstrap_icons_80, 0);
-    lv_obj_set_style_text_color(memory_icon, TEXT_COLOR, 0);
+    lv_obj_set_style_text_color(memory_icon, config.getTextColor(), 0);
     lv_label_set_text(memory_icon, "\U0000F6E3");
     lv_obj_set_width(memory_icon, ICON_WIDTH);
 
     memory_bar = lv_bar_create(memory_row);
     lv_bar_set_range(memory_bar, 0, 100);
-    lv_bar_set_value(memory_bar, 0, LV_ANIM_OFF);
     lv_obj_set_flex_grow(memory_bar, 1);
     lv_obj_set_height(memory_bar, BAR_HEIGHT);
     lv_obj_add_style(memory_bar, &memory_bar_style_main, LV_PART_MAIN);
     lv_obj_add_style(memory_bar, &memory_bar_style_indic, LV_PART_INDICATOR);
 
     memory_label = lv_label_create(memory_bar);
-    lv_label_set_text(memory_label, "0%");
-    lv_obj_set_style_text_color(memory_label, TEXT_COLOR, 0);
+    lv_obj_set_style_text_color(memory_label, config.getTextColor(), 0);
     lv_obj_set_style_text_font(memory_label, &comfortaa_40, 0);
     lv_obj_center(memory_label);
 
@@ -229,27 +229,25 @@ void create_ui()
     lv_obj_set_style_pad_column(disk_row, ICON_BAR_SPACING, 0);
     lv_obj_set_style_border_width(disk_row, 0, 0);
     lv_obj_set_flex_grow(disk_row, 0);
-    lv_obj_set_style_bg_color(disk_row, BG_COLOR, 0);
+    lv_obj_set_style_bg_color(disk_row, config.getBgColor(), 0);
     lv_obj_set_flex_align(disk_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(disk_row, LV_OBJ_FLAG_SCROLLABLE);
 
     disk_icon = lv_label_create(disk_row);
     lv_obj_set_style_text_font(disk_icon, &bootstrap_icons_80, 0);
-    lv_obj_set_style_text_color(disk_icon, TEXT_COLOR, 0);
+    lv_obj_set_style_text_color(disk_icon, config.getTextColor(), 0);
     lv_label_set_text(disk_icon, "\U0000F412");
     lv_obj_set_width(disk_icon, ICON_WIDTH);
 
     disk_bar = lv_bar_create(disk_row);
     lv_bar_set_range(disk_bar, 0, 100);
-    lv_bar_set_value(disk_bar, 0, LV_ANIM_OFF);
     lv_obj_set_flex_grow(disk_bar, 1);
     lv_obj_set_height(disk_bar, BAR_HEIGHT);
     lv_obj_add_style(disk_bar, &disk_bar_style_main, LV_PART_MAIN);
     lv_obj_add_style(disk_bar, &disk_bar_style_indic, LV_PART_INDICATOR);
 
     disk_label = lv_label_create(disk_bar);
-    lv_label_set_text(disk_label, "0%");
-    lv_obj_set_style_text_color(disk_label, TEXT_COLOR, 0);
+    lv_obj_set_style_text_color(disk_label, config.getTextColor(), 0);
     lv_obj_set_style_text_font(disk_label, &comfortaa_40, 0);
     lv_obj_center(disk_label);
 
@@ -261,46 +259,44 @@ void create_ui()
     lv_obj_set_style_pad_column(gpu_row, ICON_BAR_SPACING, 0);
     lv_obj_set_style_border_width(gpu_row, 0, 0);
     lv_obj_set_flex_grow(gpu_row, 0);
-    lv_obj_set_style_bg_color(gpu_row, BG_COLOR, 0);
+    lv_obj_set_style_bg_color(gpu_row, config.getBgColor(), 0);
     lv_obj_set_flex_align(gpu_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(gpu_row, LV_OBJ_FLAG_SCROLLABLE);
 
     gpu_icon = lv_label_create(gpu_row);
     lv_obj_set_style_text_font(gpu_icon, &bootstrap_icons_80, 0);
-    lv_obj_set_style_text_color(gpu_icon, TEXT_COLOR, 0);
+    lv_obj_set_style_text_color(gpu_icon, config.getTextColor(), 0);
     lv_label_set_text(gpu_icon, "\U0000F6E2");
     lv_obj_set_width(gpu_icon, ICON_WIDTH);
 
     gpu_bar = lv_bar_create(gpu_row);
     lv_bar_set_range(gpu_bar, 0, 100);
-    lv_bar_set_value(gpu_bar, 0, LV_ANIM_OFF);
     lv_obj_set_flex_grow(gpu_bar, 1);
     lv_obj_set_height(gpu_bar, BAR_HEIGHT);
     lv_obj_add_style(gpu_bar, &gpu_bar_style_main, LV_PART_MAIN);
     lv_obj_add_style(gpu_bar, &gpu_bar_style_indic, LV_PART_INDICATOR);
 
     gpu_label = lv_label_create(gpu_bar);
-    lv_label_set_text(gpu_label, "0%");
-    lv_obj_set_style_text_color(gpu_label, TEXT_COLOR, 0);
+    lv_obj_set_style_text_color(gpu_label, config.getTextColor(), 0);
     lv_obj_set_style_text_font(gpu_label, &comfortaa_40, 0);
     lv_obj_center(gpu_label);
 
     lv_obj_add_flag(gpu_row, LV_OBJ_FLAG_HIDDEN);
 
     // Network Row
-    lv_obj_t *network_row = lv_obj_create(main_container);
+    network_row = lv_obj_create(main_container);
     lv_obj_set_size(network_row, lv_pct(100), row_height);
     lv_obj_set_flex_flow(network_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_all(network_row, 0, 0);
     lv_obj_set_style_pad_column(network_row, 0, 0);
     lv_obj_set_style_border_width(network_row, 0, 0);
     lv_obj_set_flex_grow(network_row, 0);
-    lv_obj_set_style_bg_color(network_row, BG_COLOR, 0);
+    lv_obj_set_style_bg_color(network_row, config.getBgColor(), 0);
     lv_obj_set_flex_align(network_row, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(network_row, LV_OBJ_FLAG_SCROLLABLE);
 
     // Download container
-    lv_obj_t *download_container = lv_obj_create(network_row);
+    download_container = lv_obj_create(network_row);
     lv_obj_set_flex_flow(download_container, LV_FLEX_FLOW_ROW);
     lv_obj_set_size(download_container, lv_pct(48), LV_SIZE_CONTENT);
     lv_obj_set_style_pad_all(download_container, 0, 0);
@@ -309,19 +305,18 @@ void create_ui()
     lv_obj_set_style_bg_opa(download_container, LV_OPA_TRANSP, 0);
     lv_obj_set_flex_align(download_container, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-    lv_obj_t *download_icon = lv_label_create(download_container);
+    download_icon = lv_label_create(download_container);
     lv_obj_set_style_text_font(download_icon, &bootstrap_icons_80, 0);
-    lv_obj_set_style_text_color(download_icon, TEXT_COLOR, 0);
+    lv_obj_set_style_text_color(download_icon, config.getTextColor(), 0);
     lv_label_set_text(download_icon, "\U0000F295");
     lv_obj_set_width(download_icon, ICON_WIDTH);
 
     download_label = lv_label_create(download_container);
-    lv_obj_set_style_text_color(download_label, TEXT_COLOR, 0);
+    lv_obj_set_style_text_color(download_label, config.getTextColor(), 0);
     lv_obj_set_style_text_font(download_label, &comfortaa_40, 0);
-    lv_label_set_text(download_label, "0 Mbps");
 
     // Upload container
-    lv_obj_t *upload_container = lv_obj_create(network_row);
+    upload_container = lv_obj_create(network_row);
     lv_obj_set_flex_flow(upload_container, LV_FLEX_FLOW_ROW);
     lv_obj_set_size(upload_container, lv_pct(48), LV_SIZE_CONTENT);
     lv_obj_set_style_pad_all(upload_container, 0, 0);
@@ -330,16 +325,15 @@ void create_ui()
     lv_obj_set_style_bg_opa(upload_container, LV_OPA_TRANSP, 0);
     lv_obj_set_flex_align(upload_container, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-    lv_obj_t *upload_icon = lv_label_create(upload_container);
+    upload_icon = lv_label_create(upload_container);
     lv_obj_set_style_text_font(upload_icon, &bootstrap_icons_80, 0);
-    lv_obj_set_style_text_color(upload_icon, TEXT_COLOR, 0);
+    lv_obj_set_style_text_color(upload_icon, config.getTextColor(), 0);
     lv_label_set_text(upload_icon, "\U0000F297");
     lv_obj_set_width(upload_icon, ICON_WIDTH);
 
     upload_label = lv_label_create(upload_container);
-    lv_obj_set_style_text_color(upload_label, TEXT_COLOR, 0);
+    lv_obj_set_style_text_color(upload_label, config.getTextColor(), 0);
     lv_obj_set_style_text_font(upload_label, &comfortaa_40, 0);
-    lv_label_set_text(upload_label, "0 Mbps");
 }
 
 void setup()
@@ -420,7 +414,6 @@ void setup()
     create_ui();
 }
 
-String msgBuffer = "";
 bool serialConnected = false;
 unsigned long lastDataTime = 0;
 const unsigned long CONNECTION_TIMEOUT = 5000;
@@ -431,139 +424,172 @@ void loop() {
         lastDataTime = millis();
     }
 
-    while (Serial.available() > 0) {
-        char c = Serial.read();
-        lastDataTime = millis();
-        
-        if (!serialConnected) {
-            serialConnected = true;
-            lv_obj_set_style_bg_color(scr, BG_COLOR, 0);
-        }
-
-        if (c == '\n' || c == '\r') {
-            if (msgBuffer.length() > 0) {
-                if (msgBuffer == "ID:ed1d2a7c8af14a27b77b1c127d806aed") {
-                    Serial.println("ID:91d8141364e544e181fca2382cd6751a");
-                    msgBuffer = "";
-                    continue;
-                }
-
-                DynamicJsonDocument doc(512);
-                DeserializationError error = deserializeJson(doc, msgBuffer);
+    if (!Serial.available()) {
+        if (lastDataTime > 0 && millis() - lastDataTime > CONNECTION_TIMEOUT) {
+            if (serialConnected) {
+                serialConnected = false;
+                lv_obj_set_style_bg_color(scr, config.getCriticalColor(), 0);
                 
-                if (!error) {
-                    float cpu = doc.containsKey("cpu") ? doc["cpu"].as<float>() : 0.0;
-                    float mem = doc.containsKey("memory") ? doc["memory"].as<float>() : 0.0;
-                    float gpu = doc.containsKey("gpu") ? doc["gpu"].as<float>() : 0.0;
-                    float up = doc.containsKey("upload") ? doc["upload"].as<float>() : 0.0;
-                    float down = doc.containsKey("download") ? doc["download"].as<float>() : 0.0;
-                    float disk = doc.containsKey("disk") ? doc["disk"].as<float>() : 0.0;
-
-                    if (gpu == 0.0) {
-                        lv_obj_add_flag(gpu_row, LV_OBJ_FLAG_HIDDEN);
-                        lv_obj_clear_flag(disk_row, LV_OBJ_FLAG_HIDDEN);
-                    } else {
-                        lv_obj_add_flag(disk_row, LV_OBJ_FLAG_HIDDEN);
-                        lv_obj_clear_flag(gpu_row, LV_OBJ_FLAG_HIDDEN);
-                    }
-                    
-                    int icpu = (int)(cpu + 0.5f);
-                    lv_bar_set_value(cpu_bar, icpu, LV_ANIM_ON);
-                    
-                    if (icpu > CRITICAL_THRESHOLD) {
-                        lv_style_set_bg_color(&cpu_bar_style_indic, CRITICAL_COLOR);
-                    } else if (icpu > WARNING_THRESHOLD) {
-                        lv_style_set_bg_color(&cpu_bar_style_indic, WARNING_COLOR);
-                    } else {
-                        lv_style_set_bg_color(&cpu_bar_style_indic, ACCENT_COLOR);
-                    }
-                    lv_obj_report_style_change(&cpu_bar_style_indic);
-                    
-                    char cpu_str[20];
-                    snprintf(cpu_str, 20, "%.2f%%", cpu);
-                    lv_label_set_text(cpu_label, cpu_str);
-
-                    int imem = (int)(mem + 0.5f);
-                    lv_bar_set_value(memory_bar, imem, LV_ANIM_ON);
-                    
-                    if (imem > CRITICAL_THRESHOLD) {
-                        lv_style_set_bg_color(&memory_bar_style_indic, CRITICAL_COLOR);
-                    } else if (imem > WARNING_THRESHOLD) {
-                        lv_style_set_bg_color(&memory_bar_style_indic, WARNING_COLOR);
-                    } else {
-                        lv_style_set_bg_color(&memory_bar_style_indic, ACCENT_COLOR);
-                    }
-                    lv_obj_report_style_change(&memory_bar_style_indic);
-                    
-                    char memory_str[20];
-                    snprintf(memory_str, 20, "%.2f%%", mem);
-                    lv_label_set_text(memory_label, memory_str);
-                    
-                    int igpu = (int)(gpu + 0.5f);
-                    lv_bar_set_value(gpu_bar, igpu, LV_ANIM_ON);
-                    
-                    if (igpu > CRITICAL_THRESHOLD) {
-                        lv_style_set_bg_color(&gpu_bar_style_indic, CRITICAL_COLOR);
-                    } else if (igpu > WARNING_THRESHOLD) {
-                        lv_style_set_bg_color(&gpu_bar_style_indic, WARNING_COLOR);
-                    } else {
-                        lv_style_set_bg_color(&gpu_bar_style_indic, ACCENT_COLOR);
-                    }
-                    lv_obj_report_style_change(&gpu_bar_style_indic);
-                    
-                    char gpu_str[20];
-                    snprintf(gpu_str, 20, "%.2f%%", gpu);
-                    lv_label_set_text(gpu_label, gpu_str);
-
-                    int idisk = (int)(disk + 0.5f);
-                    lv_bar_set_value(disk_bar, idisk, LV_ANIM_ON);
-                    
-                    if (idisk > CRITICAL_THRESHOLD) {
-                        lv_style_set_bg_color(&disk_bar_style_indic, CRITICAL_COLOR);
-                    } else if (idisk > WARNING_THRESHOLD) {
-                        lv_style_set_bg_color(&disk_bar_style_indic, WARNING_COLOR);
-                    } else {
-                        lv_style_set_bg_color(&disk_bar_style_indic, ACCENT_COLOR);
-                    }
-                    lv_obj_report_style_change(&disk_bar_style_indic);
-                    
-                    char disk_str[20];
-                    snprintf(disk_str, 20, "%.2f%%", disk);
-                    lv_label_set_text(disk_label, disk_str);
-                    
-                    char upload_str[20];
-                    char download_str[20];
-                    snprintf(upload_str, 20, "%.2f Mbps", up);
-                    snprintf(download_str, 20, "%.2f Mbps", down);
-                    
-                    lv_label_set_text(upload_label, upload_str);
-                    lv_label_set_text(download_label, download_str);
-                }
-                msgBuffer = "";
+                // Reset all values to 0
+                lv_bar_set_value(cpu_bar, 0, LV_ANIM_ON);
+                lv_bar_set_value(memory_bar, 0, LV_ANIM_ON);
+                lv_bar_set_value(gpu_bar, 0, LV_ANIM_ON);
+                lv_bar_set_value(disk_bar, 0, LV_ANIM_ON);
+                
+                lv_label_set_text(cpu_label, "0.00%");
+                lv_label_set_text(memory_label, "0.00%");
+                lv_label_set_text(gpu_label, "0.00%");
+                lv_label_set_text(disk_label, "0.00%");
+                lv_label_set_text(upload_label, "0.00 Mbps");
+                lv_label_set_text(download_label, "0.00 Mbps");
             }
-        } else {
-            msgBuffer += c;
         }
+
+        return;
     }
 
-    // Only check timeout if we've started timing
-    if (lastDataTime > 0 && millis() - lastDataTime > CONNECTION_TIMEOUT) {
-        if (serialConnected) {
-            serialConnected = false;
-            lv_obj_set_style_bg_color(scr, CRITICAL_COLOR, 0);
-            
-            // Reset all values to 0
-            lv_bar_set_value(cpu_bar, 0, LV_ANIM_ON);
-            lv_bar_set_value(memory_bar, 0, LV_ANIM_ON);
-            lv_bar_set_value(gpu_bar, 0, LV_ANIM_ON);
-            lv_bar_set_value(disk_bar, 0, LV_ANIM_ON);
-            
-            lv_label_set_text(cpu_label, "0.00%");
-            lv_label_set_text(memory_label, "0.00%");
-            lv_label_set_text(gpu_label, "0.00%");
-            lv_label_set_text(disk_label, "0.00%");
-            lv_label_set_text(upload_label, "0.00 Mbps");
-            lv_label_set_text(download_label, "0.00 Mbps");
+    if (Serial.available()) {
+        if (!serialConnected) {
+            serialConnected = true;
+            lv_obj_set_style_bg_color(scr, config.getBgColor(), 0);
+        }
+        
+        lastDataTime = millis();
+
+        char buffer[512];
+        size_t len = Serial.readBytesUntil('\n', buffer, sizeof(buffer) - 1);
+        buffer[len] = '\0';
+
+        DynamicJsonDocument doc(512);
+        DeserializationError error = deserializeJson(doc, buffer);
+
+        if (error) {
+            Serial.print("JSON Error: ");
+            Serial.println(error.f_str());
+            return;
+        }
+
+        const char* msgType = doc["type"];
+
+        if (strcmp(msgType, "handshake") == 0) {
+            if (doc["data"] == "ed1d2a7c8af14a27b77b1c127d806aed") {
+                Serial.println("91d8141364e544e181fca2382cd6751a");
+            }
+        }
+
+        if (strcmp(msgType, "theme") == 0) {
+            const char* variant = doc["data"]["variant"];  // "dark" or "light"
+            const char* accent = doc["data"]["accent"];    // "sapphire", "mauve", "green", "peach"
+
+            // Set theme variant
+            if (strcmp(variant, "dark") == 0) {
+                config.setTheme(THEME_DARK);
+            } else if (strcmp(variant, "light") == 0) {
+                config.setTheme(THEME_LIGHT);
+            }
+
+            // Set accent color
+            if (strcmp(accent, "sapphire") == 0) {
+                config.setAccentColor(ACCENT_COLOR_SAPPHIRE);
+            } else if (strcmp(accent, "mauve") == 0) {
+                config.setAccentColor(ACCENT_COLOR_MAUVE);
+            } else if (strcmp(accent, "green") == 0) {
+                config.setAccentColor(ACCENT_COLOR_GREEN);
+            } else if (strcmp(accent, "peach") == 0) {
+                config.setAccentColor(ACCENT_COLOR_PEACH);
+            }
+
+            lv_obj_clean(scr);
+            create_ui();
+        }
+
+        if (strcmp(msgType, "metrics") == 0) {
+            float cpu = doc["data"]["cpu"] || 0.0;
+            float mem = doc["data"]["memory"] || 0.0;
+            float gpu = doc["data"]["gpu"] || 0.0;
+            float up = doc["data"]["upload"] || 0.0;
+            float down = doc["data"]["download"] || 0.0;
+            float disk = doc["data"]["disk"] || 0.0;
+
+            if (gpu == 0.0) {
+                lv_obj_add_flag(gpu_row, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_clear_flag(disk_row, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_add_flag(disk_row, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_clear_flag(gpu_row, LV_OBJ_FLAG_HIDDEN);
+            }
+
+            int icpu = (int)(cpu + 0.5f);
+            lv_bar_set_value(cpu_bar, icpu, LV_ANIM_ON);
+
+            if (icpu > CRITICAL_THRESHOLD) {
+                lv_style_set_bg_color(&cpu_bar_style_indic, config.getCriticalColor());
+            } else if (icpu > WARNING_THRESHOLD) {
+                lv_style_set_bg_color(&cpu_bar_style_indic, config.getWarningColor());
+            } else {
+                lv_style_set_bg_color(&cpu_bar_style_indic, config.getAccentColorValue());
+            }
+            lv_obj_report_style_change(&cpu_bar_style_indic);
+
+            char cpu_str[20];
+            snprintf(cpu_str, 20, "%.2f%%", cpu);
+            lv_label_set_text(cpu_label, cpu_str);
+
+            int imem = (int)(mem + 0.5f);
+            lv_bar_set_value(memory_bar, imem, LV_ANIM_ON);
+
+            if (imem > CRITICAL_THRESHOLD) {
+                lv_style_set_bg_color(&memory_bar_style_indic, config.getCriticalColor());
+            } else if (imem > WARNING_THRESHOLD) {
+                lv_style_set_bg_color(&memory_bar_style_indic, config.getWarningColor());
+            } else {
+                lv_style_set_bg_color(&memory_bar_style_indic, config.getAccentColorValue());
+            }
+            lv_obj_report_style_change(&memory_bar_style_indic);
+
+            char memory_str[20];
+            snprintf(memory_str, 20, "%.2f%%", mem);
+            lv_label_set_text(memory_label, memory_str);
+
+            int igpu = (int)(gpu + 0.5f);
+            lv_bar_set_value(gpu_bar, igpu, LV_ANIM_ON);
+
+            if (igpu > CRITICAL_THRESHOLD) {
+                lv_style_set_bg_color(&gpu_bar_style_indic, config.getCriticalColor());
+            } else if (igpu > WARNING_THRESHOLD) {
+                lv_style_set_bg_color(&gpu_bar_style_indic, config.getWarningColor());
+            } else {
+                lv_style_set_bg_color(&gpu_bar_style_indic, config.getAccentColorValue());
+            }
+            lv_obj_report_style_change(&gpu_bar_style_indic);
+
+            char gpu_str[20];
+            snprintf(gpu_str, 20, "%.2f%%", gpu);
+            lv_label_set_text(gpu_label, gpu_str);
+
+            int idisk = (int)(disk + 0.5f);
+            lv_bar_set_value(disk_bar, idisk, LV_ANIM_ON);
+
+            if (idisk > CRITICAL_THRESHOLD) {
+                lv_style_set_bg_color(&disk_bar_style_indic, config.getCriticalColor());
+            } else if (idisk > WARNING_THRESHOLD) {
+                lv_style_set_bg_color(&disk_bar_style_indic, config.getWarningColor());
+            } else {
+                lv_style_set_bg_color(&disk_bar_style_indic, config.getAccentColorValue());
+            }
+            lv_obj_report_style_change(&disk_bar_style_indic);
+
+            char disk_str[20];
+            snprintf(disk_str, 20, "%.2f%%", disk);
+            lv_label_set_text(disk_label, disk_str);
+
+            char upload_str[20];
+            char download_str[20];
+            snprintf(upload_str, 20, "%.2f Mbps", up);
+            snprintf(download_str, 20, "%.2f Mbps", down);
+
+            lv_label_set_text(upload_label, upload_str);
+            lv_label_set_text(download_label, download_str);
         }
     }
     

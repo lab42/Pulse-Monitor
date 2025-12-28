@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"fyne.io/systray"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
@@ -17,7 +18,16 @@ import (
 	"go.bug.st/serial"
 )
 
-type SystemStats struct {
+type Message struct {
+	Type string      `json:"type"`
+	Data interface{} `json:"data"`
+}
+
+type HandshakeData struct {
+	ID string `json:"id"`
+}
+
+type MetricsData struct {
 	CPU      float64 `json:"cpu"`
 	Memory   float64 `json:"memory"`
 	GPU      float64 `json:"gpu"`
@@ -26,10 +36,15 @@ type SystemStats struct {
 	Disk     float64 `json:"disk"`
 }
 
+type ThemeData struct {
+	Variant string `json:"variant"`
+	Accent  string `json:"accent"`
+}
+
 // ------------------ CONFIG ------------------
 const (
-	esp32ID      = "ID:91d8141364e544e181fca2382cd6751a"
-	hostID       = "ID:ed1d2a7c8af14a27b77b1c127d806aed"
+	esp32ID      = "91d8141364e544e181fca2382cd6751a"
+	hostID       = "ed1d2a7c8af14a27b77b1c127d806aed"
 	sampleWindow = 5
 	baudRate     = 115200
 )
@@ -74,25 +89,184 @@ var (
 	lastNetStats       net.IOCountersStat
 	netMutex           sync.Mutex
 	nvidiaSmiAvailable bool
+
+	// Systray globals
+	statusMenuItem *systray.MenuItem
+	portHandle     serial.Port
+	portMutex      sync.Mutex
+	isConnected    bool
 )
 
 // ------------------ MAIN ------------------
 func main() {
-	nvidiaSmiAvailable = checkNvidiaSmi()
-	if nvidiaSmiAvailable {
-		log.Println("nvidia-smi found, GPU monitoring enabled")
+	systray.Run(onReady, onExit)
+}
+
+func onReady() {
+	systray.SetTitle("P")
+	systray.SetTooltip("System Metrics Monitor")
+
+	// Status item (disabled/non-clickable)
+	statusMenuItem = systray.AddMenuItem("Status: Connecting...", "Connection status")
+	statusMenuItem.Disable()
+
+	systray.AddSeparator()
+
+	// Theme submenu
+	mTheme := systray.AddMenuItem("Theme", "Change theme")
+	mThemeDark := mTheme.AddSubMenuItem("Dark", "Switch to dark theme")
+	mThemeLight := mTheme.AddSubMenuItem("Light", "Switch to light theme")
+
+	systray.AddSeparator()
+
+	// Accent color submenu
+	mAccent := systray.AddMenuItem("Accent Color", "Change accent color")
+	mAccentSapphire := mAccent.AddSubMenuItem("Sapphire", "Blue accent")
+	mAccentMauve := mAccent.AddSubMenuItem("Mauve", "Purple accent")
+	mAccentGreen := mAccent.AddSubMenuItem("Green", "Green accent")
+	mAccentPeach := mAccent.AddSubMenuItem("Peach", "Orange accent")
+
+	systray.AddSeparator()
+
+	// Quit button
+	mQuit := systray.AddMenuItem("Quit", "Quit Pulse Monitor")
+
+	// Start background workers
+	go func() {
+		nvidiaSmiAvailable = checkNvidiaSmi()
+		if nvidiaSmiAvailable {
+			log.Println("nvidia-smi found, GPU monitoring enabled")
+		} else {
+			log.Println("nvidia-smi not found, GPU stats disabled")
+		}
+
+		initializeNetworkStats()
+		startSamplers()
+
+		// Connect and start sending
+		go connectAndSend()
+	}()
+
+	// Handle menu clicks
+	go func() {
+		for {
+			select {
+			case <-mThemeDark.ClickedCh:
+				sendThemeChange("dark", "")
+			case <-mThemeLight.ClickedCh:
+				sendThemeChange("light", "")
+			case <-mAccentSapphire.ClickedCh:
+				sendThemeChange("", "sapphire")
+			case <-mAccentMauve.ClickedCh:
+				sendThemeChange("", "mauve")
+			case <-mAccentGreen.ClickedCh:
+				sendThemeChange("", "green")
+			case <-mAccentPeach.ClickedCh:
+				sendThemeChange("", "peach")
+			case <-mQuit.ClickedCh:
+				systray.Quit()
+				return
+			}
+		}
+	}()
+}
+
+func onExit() {
+	portMutex.Lock()
+	if portHandle != nil {
+		portHandle.Close()
+	}
+	portMutex.Unlock()
+	log.Println("Exiting Pulse Monitor")
+}
+
+func updateConnectionStatus(connected bool) {
+	isConnected = connected
+	if connected {
+		statusMenuItem.SetTitle("Status: Connected ✓")
 	} else {
-		log.Println("nvidia-smi not found, GPU stats disabled")
+		statusMenuItem.SetTitle("Status: Disconnected ✗")
+	}
+}
+
+func sendThemeChange(variant, accent string) {
+	portMutex.Lock()
+	port := portHandle
+	portMutex.Unlock()
+
+	if port == nil || !isConnected {
+		log.Println("Cannot send theme change: not connected")
+		return
 	}
 
-	initializeNetworkStats()
+	// Get current theme settings if only one parameter is provided
+	// For simplicity, we'll send both every time
+	// You could track current theme state if needed
+	if variant == "" {
+		variant = "light" // default
+	}
+	if accent == "" {
+		accent = "sapphire" // default
+	}
 
-	port := openPortWithRetry()
-	defer port.Close()
+	msg := Message{
+		Type: "theme",
+		Data: ThemeData{
+			Variant: variant,
+			Accent:  accent,
+		},
+	}
 
-	startSamplers()
+	jsonData, err := json.Marshal(msg)
+	if err != nil {
+		log.Println("Error marshaling theme message:", err)
+		return
+	}
 
-	sendStatsLoop(port)
+	if _, err = port.Write(append(jsonData, '\n')); err != nil {
+		log.Println("Error sending theme change:", err)
+	} else {
+		log.Printf("Theme changed: variant=%s, accent=%s\n", variant, accent)
+	}
+}
+
+func connectAndSend() {
+	for {
+		updateConnectionStatus(false)
+		port := openPortWithRetry()
+
+		portMutex.Lock()
+		portHandle = port
+		portMutex.Unlock()
+
+		updateConnectionStatus(true)
+
+		// Send metrics loop
+		ticker := time.NewTicker(1 * time.Second)
+		for range ticker.C {
+			msg := Message{
+				Type: "metrics",
+				Data: getMetrics(),
+			}
+
+			jsonData, err := json.Marshal(msg)
+			if err != nil {
+				log.Println("Error marshaling JSON:", err)
+				continue
+			}
+
+			portMutex.Lock()
+			_, err = port.Write(append(jsonData, '\n'))
+			portMutex.Unlock()
+
+			if err != nil {
+				log.Println("Lost connection to Pulse Monitor — reconnecting...")
+				ticker.Stop()
+				port.Close()
+				break // Break to reconnect
+			}
+		}
+	}
 }
 
 func initializeNetworkStats() {
@@ -109,28 +283,6 @@ func startSamplers() {
 	go runSampler(200*time.Millisecond, sampleGPU)
 	go runSampler(200*time.Millisecond, sampleNetwork)
 	go runSampler(5*time.Second, sampleDisk)
-}
-
-func sendStatsLoop(port serial.Port) {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		stats := getSystemStats()
-		jsonData, err := json.Marshal(stats)
-		if err != nil {
-			log.Println("Error marshaling JSON:", err)
-			continue
-		}
-
-		log.Println(string(jsonData))
-
-		if _, err = port.Write(append(jsonData, '\n')); err != nil {
-			fmt.Println("Lost connection to Pulse Monitor — reconnecting...")
-			port.Close()
-			port = openPortWithRetry()
-		}
-	}
 }
 
 // ------------------ GENERIC SAMPLER ------------------
@@ -224,8 +376,8 @@ func round2(v float64) float64 {
 	return float64(int(v*100)) / 100
 }
 
-func getSystemStats() SystemStats {
-	return SystemStats{
+func getMetrics() MetricsData {
+	return MetricsData{
 		CPU:      round2(cpuTracker.average()),
 		Memory:   round2(memoryTracker.average()),
 		GPU:      round2(gpuTracker.average()),
@@ -262,7 +414,14 @@ func isESP32Port(portName string) bool {
 	}
 	defer port.Close()
 
-	port.Write([]byte(hostID + "\n"))
+	// Send handshake
+	handshake := Message{
+		Type: "handshake",
+		Data: hostID,
+	}
+	jsonData, _ := json.Marshal(handshake)
+	port.Write(append(jsonData, '\n'))
+
 	buf := make([]byte, 128)
 	port.SetReadTimeout(500 * time.Millisecond)
 	n, _ := port.Read(buf)
