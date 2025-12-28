@@ -102,7 +102,7 @@ void touchpad_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data)
 void create_ui()
 {
     scr = lv_scr_act();
-    lv_obj_set_style_bg_color(scr, config.getCriticalColor(), 0);
+    lv_obj_set_style_bg_color(scr, config.getBgColor(), 0);
 
     // Initialize styles with animation
     lv_style_init(&cpu_bar_style_main);
@@ -181,6 +181,7 @@ void create_ui()
 
     cpu_bar = lv_bar_create(cpu_row);
     lv_bar_set_range(cpu_bar, 0, 100);
+    lv_bar_set_value(cpu_bar, 0, LV_ANIM_OFF);
     lv_obj_set_flex_grow(cpu_bar, 1);
     lv_obj_set_height(cpu_bar, BAR_HEIGHT);
     lv_obj_add_style(cpu_bar, &cpu_bar_style_main, LV_PART_MAIN);
@@ -211,6 +212,7 @@ void create_ui()
 
     memory_bar = lv_bar_create(memory_row);
     lv_bar_set_range(memory_bar, 0, 100);
+    lv_bar_set_value(memory_bar, 0, LV_ANIM_OFF);
     lv_obj_set_flex_grow(memory_bar, 1);
     lv_obj_set_height(memory_bar, BAR_HEIGHT);
     lv_obj_add_style(memory_bar, &memory_bar_style_main, LV_PART_MAIN);
@@ -241,6 +243,7 @@ void create_ui()
 
     disk_bar = lv_bar_create(disk_row);
     lv_bar_set_range(disk_bar, 0, 100);
+    lv_bar_set_value(disk_bar, 0, LV_ANIM_OFF);
     lv_obj_set_flex_grow(disk_bar, 1);
     lv_obj_set_height(disk_bar, BAR_HEIGHT);
     lv_obj_add_style(disk_bar, &disk_bar_style_main, LV_PART_MAIN);
@@ -271,6 +274,7 @@ void create_ui()
 
     gpu_bar = lv_bar_create(gpu_row);
     lv_bar_set_range(gpu_bar, 0, 100);
+    lv_bar_set_value(gpu_bar, 0, LV_ANIM_OFF);
     lv_obj_set_flex_grow(gpu_bar, 1);
     lv_obj_set_height(gpu_bar, BAR_HEIGHT);
     lv_obj_add_style(gpu_bar, &gpu_bar_style_main, LV_PART_MAIN);
@@ -334,6 +338,13 @@ void create_ui()
     upload_label = lv_label_create(upload_container);
     lv_obj_set_style_text_color(upload_label, config.getTextColor(), 0);
     lv_obj_set_style_text_font(upload_label, &comfortaa_40, 0);
+
+    lv_label_set_text(cpu_label, "0.00%");
+    lv_label_set_text(memory_label, "0.00%");
+    lv_label_set_text(gpu_label, "0.00%");
+    lv_label_set_text(disk_label, "0.00%");
+    lv_label_set_text(upload_label, "0.00 Mbps");
+    lv_label_set_text(download_label, "0.00 Mbps");
 }
 
 void setup()
@@ -341,6 +352,7 @@ void setup()
     Serial.begin(115200);
     delay(2000);
 
+    config.begin();
     pinMode(PIN_NUM_BK_LIGHT, OUTPUT);
     digitalWrite(PIN_NUM_BK_LIGHT, HIGH);
 
@@ -375,7 +387,9 @@ void setup()
             PIN_NUM_DATA8, PIN_NUM_DATA9, PIN_NUM_DATA10, PIN_NUM_DATA11,
             PIN_NUM_DATA12, PIN_NUM_DATA13, PIN_NUM_DATA14, PIN_NUM_DATA15,
         },
-        .flags = { .fb_in_psram = 1 },
+        .flags = { 
+            .fb_in_psram = 1,
+        },
     };
 
     ESP_ERROR_CHECK(esp_lcd_new_rgb_panel(&panel_config, &panel_handle));
@@ -444,15 +458,11 @@ void loop() {
                 lv_label_set_text(download_label, "0.00 Mbps");
             }
         }
-
-        return;
     }
 
     if (Serial.available()) {
-        if (!serialConnected) {
             serialConnected = true;
             lv_obj_set_style_bg_color(scr, config.getBgColor(), 0);
-        }
         
         lastDataTime = millis();
 
@@ -491,12 +501,24 @@ void loop() {
             // Set accent color
             if (strcmp(accent, "sapphire") == 0) {
                 config.setAccentColor(ACCENT_COLOR_SAPPHIRE);
-            } else if (strcmp(accent, "mauve") == 0) {
-                config.setAccentColor(ACCENT_COLOR_MAUVE);
+            } else if (strcmp(accent, "sky") == 0) {
+                config.setAccentColor(ACCENT_COLOR_SKY);
+            } else if (strcmp(accent, "teal") == 0) {
+                config.setAccentColor(ACCENT_COLOR_TEAL);
             } else if (strcmp(accent, "green") == 0) {
                 config.setAccentColor(ACCENT_COLOR_GREEN);
             } else if (strcmp(accent, "peach") == 0) {
                 config.setAccentColor(ACCENT_COLOR_PEACH);
+            } else if (strcmp(accent, "maroon") == 0) {
+                config.setAccentColor(ACCENT_COLOR_MAROON);
+            } else if (strcmp(accent, "pink") == 0) {
+                config.setAccentColor(ACCENT_COLOR_PINK);
+            } else if (strcmp(accent, "flamingo") == 0) {
+                config.setAccentColor(ACCENT_COLOR_FLAMINGO);
+            } else if (strcmp(accent, "mauve") == 0) {
+                config.setAccentColor(ACCENT_COLOR_MAUVE);
+            } else if (strcmp(accent, "lavender") == 0) {
+                config.setAccentColor(ACCENT_COLOR_LAVENDER);
             }
 
             lv_obj_clean(scr);
@@ -504,12 +526,12 @@ void loop() {
         }
 
         if (strcmp(msgType, "metrics") == 0) {
-            float cpu = doc["data"]["cpu"] || 0.0;
-            float mem = doc["data"]["memory"] || 0.0;
-            float gpu = doc["data"]["gpu"] || 0.0;
-            float up = doc["data"]["upload"] || 0.0;
-            float down = doc["data"]["download"] || 0.0;
-            float disk = doc["data"]["disk"] || 0.0;
+            float cpu = doc["data"]["cpu"];
+            float mem = doc["data"]["memory"];
+            float gpu = doc["data"]["gpu"];
+            float up = doc["data"]["upload"];
+            float down = doc["data"]["download"];
+            float disk = doc["data"]["disk"];
 
             if (gpu == 0.0) {
                 lv_obj_add_flag(gpu_row, LV_OBJ_FLAG_HIDDEN);

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"systemmonitor/icon"
 	"time"
 
 	"fyne.io/systray"
@@ -103,6 +104,7 @@ func main() {
 }
 
 func onReady() {
+	systray.SetTemplateIcon(icon.Data, icon.Data)
 	systray.SetTitle("P")
 	systray.SetTooltip("System Metrics Monitor")
 
@@ -122,9 +124,15 @@ func onReady() {
 	// Accent color submenu
 	mAccent := systray.AddMenuItem("Accent Color", "Change accent color")
 	mAccentSapphire := mAccent.AddSubMenuItem("Sapphire", "Blue accent")
-	mAccentMauve := mAccent.AddSubMenuItem("Mauve", "Purple accent")
+	mAccentSky := mAccent.AddSubMenuItem("Sky", "Light blue accent")
+	mAccentTeal := mAccent.AddSubMenuItem("Teal", "Teal accent")
 	mAccentGreen := mAccent.AddSubMenuItem("Green", "Green accent")
 	mAccentPeach := mAccent.AddSubMenuItem("Peach", "Orange accent")
+	mAccentMaroon := mAccent.AddSubMenuItem("Maroon", "Dark red accent")
+	mAccentPink := mAccent.AddSubMenuItem("Pink", "Pink accent")
+	mAccentFlamingo := mAccent.AddSubMenuItem("Flamingo", "Coral pink accent")
+	mAccentMauve := mAccent.AddSubMenuItem("Mauve", "Purple accent")
+	mAccentLavender := mAccent.AddSubMenuItem("Lavender", "Light purple accent")
 
 	systray.AddSeparator()
 
@@ -157,12 +165,24 @@ func onReady() {
 				sendThemeChange("light", "")
 			case <-mAccentSapphire.ClickedCh:
 				sendThemeChange("", "sapphire")
-			case <-mAccentMauve.ClickedCh:
-				sendThemeChange("", "mauve")
+			case <-mAccentSky.ClickedCh:
+				sendThemeChange("", "sky")
+			case <-mAccentTeal.ClickedCh:
+				sendThemeChange("", "teal")
 			case <-mAccentGreen.ClickedCh:
 				sendThemeChange("", "green")
 			case <-mAccentPeach.ClickedCh:
 				sendThemeChange("", "peach")
+			case <-mAccentMaroon.ClickedCh:
+				sendThemeChange("", "maroon")
+			case <-mAccentPink.ClickedCh:
+				sendThemeChange("", "pink")
+			case <-mAccentFlamingo.ClickedCh:
+				sendThemeChange("", "flamingo")
+			case <-mAccentMauve.ClickedCh:
+				sendThemeChange("", "mauve")
+			case <-mAccentLavender.ClickedCh:
+				sendThemeChange("", "lavender")
 			case <-mQuit.ClickedCh:
 				systray.Quit()
 				return
@@ -197,16 +217,6 @@ func sendThemeChange(variant, accent string) {
 	if port == nil || !isConnected {
 		log.Println("Cannot send theme change: not connected")
 		return
-	}
-
-	// Get current theme settings if only one parameter is provided
-	// For simplicity, we'll send both every time
-	// You could track current theme state if needed
-	if variant == "" {
-		variant = "light" // default
-	}
-	if accent == "" {
-		accent = "sapphire" // default
 	}
 
 	msg := Message{

@@ -1,6 +1,5 @@
 #ifndef CONFIG_H
 #define CONFIG_H
-
 #include <lvgl.h>
 #include <Preferences.h>
 
@@ -24,10 +23,16 @@ enum Theme {
 };
 
 enum AccentColor {
-  ACCENT_COLOR_SAPPHIRE = 1,
-  ACCENT_COLOR_MAUVE = 2,
-  ACCENT_COLOR_GREEN = 3,
-  ACCENT_COLOR_PEACH = 4
+  ACCENT_COLOR_SAPPHIRE = 1,  // Blue
+  ACCENT_COLOR_MAUVE = 2,     // Purple
+  ACCENT_COLOR_GREEN = 3,     // Green
+  ACCENT_COLOR_PEACH = 4,     // Orange
+  ACCENT_COLOR_PINK = 5,      // Pink
+  ACCENT_COLOR_TEAL = 6,      // Teal/Cyan
+  ACCENT_COLOR_SKY = 7,       // Light Blue
+  ACCENT_COLOR_LAVENDER = 8,  // Light Purple
+  ACCENT_COLOR_MAROON = 9,   // Dark Red
+  ACCENT_COLOR_FLAMINGO = 10  // Coral Pink
 };
 
 // Configuration class with runtime theme switching
@@ -36,12 +41,18 @@ private:
   Preferences prefs;
   Theme currentTheme;
   AccentColor currentAccent;
+  bool initialized = false;
   
 public:  
-  Config() {
+  Config() {}
+  
+  void begin() {
+    if (initialized) return;
+    
     prefs.begin("config", false);
-    currentTheme = (Theme)prefs.getInt("theme", THEME_DARK);
+    currentTheme = (Theme)prefs.getInt("theme", THEME_LIGHT);
     currentAccent = (AccentColor)prefs.getInt("accent", ACCENT_COLOR_SAPPHIRE);
+    initialized = true;
   }
   
   void setTheme(Theme theme) {
@@ -59,11 +70,17 @@ public:
   
   lv_color_t getAccentColorValue() {
     switch(currentAccent) {
-      case ACCENT_COLOR_SAPPHIRE: return lv_color_hex(0x209fb5);
-      case ACCENT_COLOR_MAUVE:    return lv_color_hex(0x8839ef);
-      case ACCENT_COLOR_GREEN:    return lv_color_hex(0x40a02b);
-      case ACCENT_COLOR_PEACH:    return lv_color_hex(0xfe640b);
-      default:                    return lv_color_hex(0x209fb5);
+      case ACCENT_COLOR_SAPPHIRE:  return lv_color_hex(0x209fb5); // Blue
+      case ACCENT_COLOR_MAUVE:     return lv_color_hex(0x8839ef); // Purple
+      case ACCENT_COLOR_GREEN:     return lv_color_hex(0x40a02b); // Green
+      case ACCENT_COLOR_PEACH:     return lv_color_hex(0xfe640b); // Orange
+      case ACCENT_COLOR_PINK:      return lv_color_hex(0xea76cb); // Pink
+      case ACCENT_COLOR_TEAL:      return lv_color_hex(0x179299); // Teal
+      case ACCENT_COLOR_SKY:       return lv_color_hex(0x04a5e5); // Light Blue
+      case ACCENT_COLOR_LAVENDER:  return lv_color_hex(0x7287fd); // Light Purple
+      case ACCENT_COLOR_MAROON:    return lv_color_hex(0xe64553); // Dark Red
+      case ACCENT_COLOR_FLAMINGO:  return lv_color_hex(0xdd7878); // Coral Pink
+      default:                     return lv_color_hex(0x209fb5);
     }
   }
   
