@@ -6,5 +6,5 @@ import (
 	_ "embed"
 )
 
-//go:embed icon.png
+//go:embed icon.svg
 var Data []byte
